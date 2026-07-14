@@ -916,6 +916,32 @@ impl World {
         );
         Ok(())
     }
+
+    /// Tries to refill `buf` with the body's current contact data.
+    ///
+    /// Allocation-free once `buf`'s capacity has warmed up — see
+    /// [`ContactBuffer`] for why this beats [`Self::try_body_contacts_into`]
+    /// when polling many bodies every step.
+    pub fn try_body_contacts_buffered(
+        &self,
+        body_id: BodyId,
+        buf: &mut ContactBuffer,
+    ) -> Result<()> {
+        callback_state::check_not_in_callback()?;
+        let _guard = box3d_lock::lock();
+        self.check_body_belongs_locked(body_id)?;
+        let capacity =
+            unsafe { ffi::b3Body_GetContactCapacity(body_id.into_raw()) }.max(0) as usize;
+        unsafe {
+            crate::core::ffi_vec::fill_from_ffi(&mut buf.raw, capacity, |ptr, cap| {
+                ffi::b3Body_GetContactData(body_id.into_raw(), ptr, cap)
+            });
+            // The raw manifold pointers reference world-internal storage;
+            // convert while the lock guard above still pins the world.
+            buf.convert_raw();
+        }
+        Ok(())
+    }
 }
 
 #[inline]

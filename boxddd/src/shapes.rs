@@ -183,6 +183,21 @@ impl ShapeDefBuilder {
     }
 
     #[inline]
+    /// Sets whether attaching or detaching this shape recomputes the owning
+    /// body's mass data immediately (Box3D's default is `true`).
+    ///
+    /// Set this to `false` when attaching many shapes to one body in a batch
+    /// and call [`World::try_apply_mass_from_shapes`] once afterwards: the
+    /// default recomputes mass over ALL of the body's shapes on EVERY
+    /// attach, making an N-shape batch cost O(N²) shape-mass computations.
+    ///
+    /// [`World::try_apply_mass_from_shapes`]: crate::World::try_apply_mass_from_shapes
+    pub fn update_body_mass(mut self, update_body_mass: bool) -> Self {
+        self.def.raw.updateBodyMass = update_body_mass;
+        self
+    }
+
+    #[inline]
     /// Replaces the complete base surface material.
     pub fn surface_material(mut self, material: SurfaceMaterial) -> Self {
         self.def.raw.baseMaterial = material.into_raw();

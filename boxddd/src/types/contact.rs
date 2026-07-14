@@ -131,3 +131,104 @@ impl ContactData {
         }
     }
 }
+
+/// One contact pair viewed inside a [`ContactBuffer`].
+#[derive(Copy, Clone, Debug)]
+pub struct ContactView<'a> {
+    /// Native contact id.
+    pub contact_id: ContactId,
+    /// First native shape in the contact pair.
+    pub shape_id_a: ShapeId,
+    /// Second native shape in the contact pair.
+    pub shape_id_b: ShapeId,
+    /// This contact's manifolds, borrowed from the buffer's flat storage.
+    pub manifolds: &'a [Manifold],
+}
+
+#[derive(Copy, Clone, Debug)]
+struct ContactHeader {
+    contact_id: ContactId,
+    shape_id_a: ShapeId,
+    shape_id_b: ShapeId,
+    manifold_start: u32,
+    manifold_count: u32,
+}
+
+/// Reusable storage for body-contact queries
+/// ([`World::try_body_contacts_buffered`]).
+///
+/// Refills without allocating once its capacity has warmed up: every
+/// contact's manifolds live in ONE flat vec shared across the buffer,
+/// where [`ContactData`] heap-allocates a `Vec<Manifold>` per contact per
+/// query — a real cost when polling contacts for many bodies every step.
+///
+/// [`World::try_body_contacts_buffered`]: crate::World::try_body_contacts_buffered
+#[derive(Default)]
+pub struct ContactBuffer {
+    pub(crate) raw: Vec<ffi::b3ContactData>,
+    headers: Vec<ContactHeader>,
+    manifolds: Vec<Manifold>,
+}
+
+impl ContactBuffer {
+    /// Creates an empty buffer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of contacts currently held.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.headers.len()
+    }
+
+    /// Whether the buffer holds no contacts.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.headers.is_empty()
+    }
+
+    /// Iterates the buffered contacts.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = ContactView<'_>> {
+        self.headers.iter().map(|h| ContactView {
+            contact_id: h.contact_id,
+            shape_id_a: h.shape_id_a,
+            shape_id_b: h.shape_id_b,
+            manifolds: &self.manifolds
+                [h.manifold_start as usize..(h.manifold_start + h.manifold_count) as usize],
+        })
+    }
+
+    /// Converts the raw snapshots in `self.raw` into headers + flat
+    /// manifolds. Clears any previous contents first.
+    ///
+    /// # Safety
+    ///
+    /// Every `raw` element's `manifolds` pointer must either be null or
+    /// point to `manifoldCount` initialized `b3Manifold` values for the
+    /// duration of this call (i.e. call while the world lock is held and
+    /// before the world is stepped or mutated).
+    pub(crate) unsafe fn convert_raw(&mut self) {
+        self.headers.clear();
+        self.manifolds.clear();
+        for c in &self.raw {
+            let start = self.manifolds.len() as u32;
+            if !c.manifolds.is_null() && c.manifoldCount > 0 {
+                self.manifolds.extend(
+                    unsafe { std::slice::from_raw_parts(c.manifolds, c.manifoldCount as usize) }
+                        .iter()
+                        .copied()
+                        .map(Manifold::from_raw),
+                );
+            }
+            self.headers.push(ContactHeader {
+                contact_id: ContactId::from_raw(c.contactId),
+                shape_id_a: ShapeId::from_raw(c.shapeIdA),
+                shape_id_b: ShapeId::from_raw(c.shapeIdB),
+                manifold_start: start,
+                manifold_count: self.manifolds.len() as u32 - start,
+            });
+        }
+    }
+}
