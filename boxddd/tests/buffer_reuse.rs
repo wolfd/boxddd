@@ -46,6 +46,60 @@ fn buffered_contacts_match_the_allocating_query_and_reuse_storage() {
     assert_eq!(buf.len(), allocating.len());
 }
 
+/// Regression: refilling a WARM buffer whose previous fill was smaller must
+/// grow it safely. `fill_from_ffi` used to under-reserve for reused vecs
+/// (`reserve(capacity - out.capacity())` guarantees `len + additional`, not
+/// a total), so the FFI wrote past the allocation — UB that a fresh-vec
+/// caller could never hit.
+#[test]
+fn warm_buffer_grows_safely_when_contact_count_increases() {
+    let mut world = World::new(WorldDef::default()).unwrap();
+    let ground = world.create_body(BodyDef::builder().body_type(BodyType::Static).build());
+    world.create_hull_shape(ground, &ShapeDef::default(), &BoxHull::new(20.0, 0.5, 20.0));
+    let center = world.create_body(
+        BodyDef::builder()
+            .body_type(BodyType::Dynamic)
+            .position([0.0, 1.0, 0.0])
+            .build(),
+    );
+    world.create_hull_shape(center, &ShapeDef::default(), &BoxHull::new(0.5, 0.5, 0.5));
+    for _ in 0..120 {
+        world.step(1.0 / 60.0, 4);
+    }
+
+    // Warm the buffer on ONE contact (the ground).
+    let mut buf = ContactBuffer::new();
+    world.try_body_contacts_buffered(center, &mut buf).unwrap();
+    let warm = buf.len();
+    assert!(warm >= 1);
+
+    // Surround the center cube so its contact list outgrows the warm fill.
+    for (dx, dz) in [(1.0f32, 0.0f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+        let n = world.create_body(
+            BodyDef::builder()
+                .body_type(BodyType::Dynamic)
+                .position([dx, 1.0, dz])
+                .build(),
+        );
+        world.create_hull_shape(n, &ShapeDef::default(), &BoxHull::new(0.5, 0.5, 0.5));
+    }
+    for _ in 0..120 {
+        world.step(1.0 / 60.0, 4);
+    }
+
+    world.try_body_contacts_buffered(center, &mut buf).unwrap();
+    assert!(
+        buf.len() > warm,
+        "the grown contact list must exceed the warm fill ({} vs {warm})",
+        buf.len()
+    );
+    let mut allocating = Vec::new();
+    world
+        .try_body_contacts_into(center, &mut allocating)
+        .unwrap();
+    assert_eq!(buf.len(), allocating.len());
+}
+
 /// `update_body_mass(false)` defers the per-attach mass recompute; one
 /// `apply_mass_from_shapes` afterwards lands on the same mass data as the
 /// default eager path.
