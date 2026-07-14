@@ -776,10 +776,19 @@ void b3JoinThread( b3Thread* t )
 
 #endif
 
-// djb2 hash, folded 8 bytes per iteration to shorten the dependency chain.
+// Multiply-rotate hash (xxHash32-style rounds), folded 8 bytes per iteration.
 // memcpy lowers to a single load on most targets; on big-endian we byte-swap so
 // the hash value is identical across endianness (preserving cross-platform determinism).
-// Equivalent to byte-wise djb2 only in spirit; values differ from the original recurrence.
+//
+// This replaced a folded djb2. djb2 is LINEAR in its input words
+// (h = 33*h + w mod 2^32), so lattice-structured content — e.g. box hulls
+// whose floats are all small multiples of one voxel size — collides
+// catastrophically: distinct hulls produced equal 32-bit hashes in bulk,
+// degrading the content-keyed hull/mesh databases into long probe chains
+// (measured 7.7x slowdown on shape creation in a voxel world). The
+// multiply-rotate round is non-linear per word and avalanche-tested by
+// xxHash; only content-database bucket routing depends on these values, so
+// swapping the function cannot change simulation results.
 uint32_t b3Hash( uint32_t hash, const uint8_t* data, int count )
 {
 	uint32_t result = hash;
@@ -795,16 +804,27 @@ uint32_t b3Hash( uint32_t hash, const uint8_t* data, int count )
 			   ( ( word & 0x000000FF00000000ULL ) >> 8 ) | ( ( word & 0x0000FF0000000000ULL ) >> 24 ) |
 			   ( ( word & 0x00FF000000000000ULL ) >> 40 ) | ( ( word & 0xFF00000000000000ULL ) >> 56 );
 #endif
-		result = ( result << 5 ) + result + (uint32_t)word;
-		result = ( result << 5 ) + result + (uint32_t)( word >> 32 );
+		result += (uint32_t)word * 2246822519u; // xxHash PRIME32_2
+		result = ( ( result << 13 ) | ( result >> 19 ) ) * 2654435761u; // rotl 13, PRIME32_1
+		result += (uint32_t)( word >> 32 ) * 2246822519u;
+		result = ( ( result << 13 ) | ( result >> 19 ) ) * 2654435761u;
 		i += 8;
 	}
 
 	while ( i < count )
 	{
-		result = ( result << 5 ) + result + data[i];
+		result += data[i] * 374761393u; // xxHash PRIME32_5
+		result = ( ( result << 11 ) | ( result >> 21 ) ) * 2654435761u;
 		i++;
 	}
+
+	// Final avalanche so short/tail-heavy inputs still spread into the high
+	// bits the hash tables use for their fast-reject fragments.
+	result ^= result >> 15;
+	result *= 2246822519u;
+	result ^= result >> 13;
+	result *= 3266489917u; // xxHash PRIME32_3
+	result ^= result >> 16;
 
 	return result;
 }

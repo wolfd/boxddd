@@ -182,7 +182,11 @@ B3_API void b3Yield( void );
 /// Sleep the current thread for a number of milliseconds.
 B3_API void b3Sleep( int milliseconds );
 
-// Simple djb2 hash function for determinism testing
+// Content hash for determinism testing and the content-keyed shape databases.
+// Multiply-rotate rounds (xxHash32-style): non-linear per word, because the
+// previous djb2 fold collided in bulk on lattice-structured float content
+// (e.g. voxel-aligned box hulls). Values are stable across endianness but NOT
+// across library versions — never persist them.
 #define B3_HASH_INIT 5381
 B3_API uint32_t b3Hash( uint32_t hash, const uint8_t* data, int count );
 
