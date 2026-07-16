@@ -1305,6 +1305,10 @@ pub fn collide_hull_and_triangle(
             triangle_b[2].into_raw(),
             triangle_flags,
             &mut cache,
+            // Box3D added an enableSpeculative parameter; true is the upstream
+            // default ("leave this true unless you care about reducing ghost
+            // collision more than continuous collision under rotation").
+            true,
         )
     })
 }

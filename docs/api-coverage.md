@@ -18,8 +18,8 @@ The current fixture classifies 578 unique upstream `B3_API` functions:
 
 | Status | Count | Typical areas |
 |---|---:|---|
-| `safe` | 538 | world lifecycle and stepping, body runtime, body/shape scoped queries, dynamic tree, mover collision, explosions, shape creation and runtime introspection, compound/mesh/height-field authoring, query, byte ownership transfer, and readback, shape event/contact/sensor readback, contact data, hull cloning and box scaling, advanced standalone collision, joints, events, world queries, debug draw, recording/replay, safe recording load, deterministic math helpers, core math/value validation |
-| `raw` | 35 | allocator/assert/log hooks, timers/sleep/hash, low-level file IO, dump helpers, explicit `boxddd::raw` user data and process-global scalar tuning, file-backed dynamic tree or height-field helpers, native recording save helper, low-level debug graph color helper |
+| `safe` | 542 | world lifecycle and stepping, body runtime, body/shape scoped queries, dynamic tree, mover collision, explosions, shape creation and runtime introspection, compound/mesh/height-field authoring, query, byte ownership transfer, and readback, shape event/contact/sensor readback, contact data, hull cloning and box scaling, advanced standalone collision, joints, events, world queries, debug draw, recording/replay incl. sub-step scrubbing, safe recording load, shape names, deterministic math helpers, core math/value validation |
+| `raw` | 31 | allocator/assert/log hooks, timers/sleep/hash, dump helpers, explicit `boxddd::raw` user data and process-global scalar tuning, file-backed dynamic tree or height-field helpers, native recording save helper, low-level debug graph color helper |
 | `omitted` | 5 | global world-count diagnostics and redundant body/shape/joint world-handle getters that do not fit the safe ownership model |
 | `deferred` | 0 | no current upstream `B3_API` symbols remain in the deferred bucket |
 

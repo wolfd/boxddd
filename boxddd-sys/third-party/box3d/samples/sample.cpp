@@ -93,8 +93,6 @@ void SampleContext::Save()
 	fprintf( file, "{\n" );
 	fprintf( file, "  \"sampleIndex\": %d,\n", sampleIndex );
 	fprintf( file, "  \"drawShapes\": %s,\n", gd->drawShapes ? "true" : "false" );
-	fprintf( file, "  \"drawJoints\": %s,\n", gd->drawJoints ? "true" : "false" );
-	fprintf( file, "  \"drawContacts\": %s,\n", gd->drawContacts ? "true" : "false" );
 	fprintf( file, "  \"enableShadows\": %s,\n", enableShadows ? "true" : "false" );
 	fprintf( file, "  \"enableGtao\": %s,\n", enableGtao ? "true" : "false" );
 	fprintf( file, "  \"gtaoQuality\": %d,\n", gtaoQuality );
@@ -102,6 +100,7 @@ void SampleContext::Save()
 	fprintf( file, "  \"exposure\": %g,\n", GetExposure() );
 	fprintf( file, "  \"sunStrength\": %g,\n", GetSun().strength );
 	fprintf( file, "  \"debugView\": %d,\n", debugView );
+	fprintf( file, "  \"drawDistance\": %g,\n", drawDistance );
 	fprintf( file, "  \"showHullEdges\": %s,\n", GetEdgeOverlayParams().showHulls ? "true" : "false" );
 	fprintf( file, "  \"showEdgeConvexity\": %s,\n", GetEdgeOverlayParams().showEdgeConvexity ? "true" : "false" );
 	fprintf( file, "  \"replayKeyframeBudgetMB\": %d,\n", replayKeyframeBudgetMB );
@@ -170,16 +169,6 @@ void SampleContext::Load()
 			const char* s = data + tokens[i + 1].start;
 			GetGuiDraw()->drawShapes = strncmp( s, "true", 4 ) == 0;
 		}
-		else if ( jsoneq( data, &tokens[i], "drawJoints" ) == 0 )
-		{
-			const char* s = data + tokens[i + 1].start;
-			GetGuiDraw()->drawJoints = strncmp( s, "true", 4 ) == 0;
-		}
-		else if ( jsoneq( data, &tokens[i], "drawContacts" ) == 0 )
-		{
-			const char* s = data + tokens[i + 1].start;
-			GetGuiDraw()->drawContacts = strncmp( s, "true", 4 ) == 0;
-		}
 		else if ( jsoneq( data, &tokens[i], "enableShadows" ) == 0 )
 		{
 			const char* s = data + tokens[i + 1].start;
@@ -236,6 +225,15 @@ void SampleContext::Load()
 			strncpy( buffer, s, count );
 			buffer[count] = 0;
 			debugView = b3ClampInt( (int)strtol( buffer, nullptr, 10 ), 0, 4 );
+		}
+		else if ( jsoneq( data, &tokens[i], "drawDistance" ) == 0 )
+		{
+			int count = tokens[i + 1].end - tokens[i + 1].start;
+			assert( count < 32 );
+			const char* s = data + tokens[i + 1].start;
+			strncpy( buffer, s, count );
+			buffer[count] = 0;
+			drawDistance = b3ClampFloat( strtof( buffer, nullptr ), 1.0f, Camera::kViewDistance );
 		}
 		else if ( jsoneq( data, &tokens[i], "showHullEdges" ) == 0 )
 		{
@@ -490,6 +488,9 @@ void Sample::Step()
 	// createDebugShape. The camera derives it from the view distance, in length units
 	// around the simulation eye, matching the broad-phase tree and the far plane.
 	debugDraw.drawingBounds = m_camera->DrawBounds();
+
+	// Same view box drives compound child culling in the adapter.
+	SetViewBounds( debugDraw.drawingBounds );
 
 	ApplyGuiFlags( &debugDraw );
 
@@ -957,7 +958,7 @@ void Sample::DrawMetrics()
 				int count = s.colorCounts[i];
 				bool isOverflow = ( i == overflowIndex );
 
-				// Skip empty slots, but always show overflow — a non-zero overflow row is the signal we care about.
+				// Skip empty slots, but always show overflow.
 				if ( count == 0 && !isOverflow )
 				{
 					continue;
@@ -1620,6 +1621,7 @@ static void DrawMenuBar( SampleContext* context )
 			ImGui::MenuItem( "Joint Extras", nullptr, &gd->drawJointExtras );
 			ImGui::MenuItem( "Bounds", nullptr, &gd->drawBounds );
 			ImGui::MenuItem( "Mass", nullptr, &gd->drawMass );
+			ImGui::MenuItem( "Sleep", nullptr, &gd->drawSleep );
 			ImGui::MenuItem( "Body Names", nullptr, &gd->drawBodyNames );
 			ImGui::MenuItem( "Graph Colors", nullptr, &gd->drawGraphColors );
 			ImGui::MenuItem( "Islands", nullptr, &gd->drawIslands );
@@ -1628,7 +1630,6 @@ static void DrawMenuBar( SampleContext* context )
 			ImGui::MenuItem( "Contact Normals", nullptr, &gd->drawContactNormals );
 			ImGui::MenuItem( "Contact Features", nullptr, &gd->drawContactFeatures );
 			ImGui::MenuItem( "Contact Forces", nullptr, &gd->drawContactForces );
-			ImGui::MenuItem( "Friction Forces", nullptr, &gd->drawFrictionForces );
 			if ( ImGui::BeginMenu( "Anchor" ) )
 			{
 				if ( ImGui::MenuItem( "Anchor A", nullptr, gd->drawAnchorA != 0 ) )
@@ -1643,6 +1644,9 @@ static void DrawMenuBar( SampleContext* context )
 			}
 			ImGui::Separator();
 			ImGui::MenuItem( "Diagnostics", "M", &context->showMetrics );
+			ImGui::PushItemWidth( 8.0f * fontSize );
+			ImGui::SliderFloat( "Draw Distance", &context->drawDistance, 10.0f, Camera::kViewDistance, "%.0f m" );
+			ImGui::PopItemWidth();
 			ImGui::Separator();
 			if ( ImGui::BeginMenu( "Scale" ) )
 			{
@@ -2276,7 +2280,7 @@ void CharacterMover::SolveMove( float timeStep, b3Vec3 forward, b3Vec3 right, b3
 		float invMassB = b3Body_GetInverseMass( bodyId );
 		b3Matrix3 invIB = b3Body_GetWorldInverseRotationalInertia( bodyId );
 
-		b3Pos pB = b3Body_GetWorldCenterOfMass( bodyId );
+		b3Pos pB = b3Body_GetWorldCenter( bodyId );
 		b3Vec3 rB = b3SubPos( point, pB );
 
 		b3Vec3 rnB = b3Cross( rB, normal );

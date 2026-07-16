@@ -451,8 +451,6 @@ pub struct DebugDrawOptions {
     pub draw_contact_normals: bool,
     /// Whether contact forces are drawn.
     pub draw_contact_forces: bool,
-    /// Whether friction forces are drawn.
-    pub draw_friction_forces: bool,
     /// Whether solver islands are drawn.
     pub draw_islands: bool,
 }
@@ -479,7 +477,6 @@ impl Default for DebugDrawOptions {
             draw_contact_features: false,
             draw_contact_normals: false,
             draw_contact_forces: false,
-            draw_friction_forces: false,
             draw_islands: false,
         }
     }
@@ -1588,7 +1585,6 @@ fn apply_options(draw: &mut ffi::b3DebugDraw, options: DebugDrawOptions, context
     draw.drawContactFeatures = options.draw_contact_features;
     draw.drawContactNormals = options.draw_contact_normals;
     draw.drawContactForces = options.draw_contact_forces;
-    draw.drawFrictionForces = options.draw_friction_forces;
     draw.drawIslands = options.draw_islands;
     draw.context = context;
 }

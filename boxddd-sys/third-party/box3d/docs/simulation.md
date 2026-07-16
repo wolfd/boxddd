@@ -490,11 +490,12 @@ The body's mass data is available through the following functions:
 ```c
 float mass = b3Body_GetMass(myBodyId);
 b3Matrix3 inertia = b3Body_GetLocalRotationalInertia(myBodyId);
-b3Vec3 localCenter = b3Body_GetLocalCenterOfMass(myBodyId);
+b3Vec3 localCenter = b3Body_GetLocalCenter(myBodyId);
 b3MassData massData = b3Body_GetMassData(myBodyId);
 ```
 
 ### State Information
+
 There are many aspects to the body's state. You can access this state
 data through the following functions:
 
@@ -537,8 +538,8 @@ body that is a box. The body origin might be a corner of the box,
 while the center of mass is located at the center of the box.
 
 ```c
-b3Vec3 worldCenter = b3Body_GetWorldCenterOfMass(myBodyId);
-b3Vec3 localCenter = b3Body_GetLocalCenterOfMass(myBodyId);
+b3Pos worldCenter = b3Body_GetWorldCenter(myBodyId);
+b3Vec3 localCenter = b3Body_GetLocalCenter(myBodyId);
 ```
 
 You can access the linear and angular velocity. The linear velocity is
@@ -704,22 +705,25 @@ instead of bodies. Since you can attach multiple shapes to a body, this allows f
 possible setups. For example, you can make a vehicle that is heavier in the back.
 
 ### Density
+
 The shape density is used to compute the mass properties of the parent
 body. The density can be zero or positive. You should generally use
 similar densities for all your shapes. This will improve stacking
 stability.
 
-The mass of a body is not adjusted when you set the density. You must
-call `b3Body_ApplyMassFromShapes()` for this to occur. Generally you should establish
-the shape density in `b3ShapeDef` and avoid modifying it later because this
-can be expensive, especially on a compound body.
+You may adjust the density of an existing body. You may choose to update the body mass immediately
+or defer for a later call to `b3Body_ApplyMassFromShapes()`. Generally you should establish
+the shape density in `b3ShapeDef` and avoid modifying it later because this can be expensive,
+especially on a body with many shapes.
 
 ```c
-b3Shape_SetDensity(myShapeId, 5.0f, true);
+bool updateMass = false;
+b3Shape_SetDensity(myShapeId, 5.0f, updateMass);
 b3Body_ApplyMassFromShapes(myBodyId);
 ```
 
 ### Friction
+
 Friction is used to make objects slide along each other realistically.
 Box3D supports static and dynamic friction, but uses the same parameter
 for both. Box3D attempts to simulate friction accurately and the friction
@@ -745,6 +749,7 @@ shapeDef.baseMaterial.friction = 0.5f;
 ```
 
 ### Restitution
+
 [Restitution](https://en.wikipedia.org/wiki/Coefficient_of_restitution) is used to make
 objects bounce. The restitution value is
 usually set to be between 0 and 1. Consider dropping a ball on a table.
@@ -772,6 +777,7 @@ shapeDef.baseMaterial.restitution = 0.3f;
 ```
 
 ### Friction and Restitution Callbacks
+
 Advanced users can override friction and restitution mixing using `b3FrictionCallback`
 and `b3RestitutionCallback`. These should be very lightweight functions because they
 are called frequently. The callbacks receive the two friction (or restitution) values
@@ -794,6 +800,7 @@ worldDef.frictionCallback = MyFrictionCallback;
 ```
 
 ### Filtering {#filtering}
+
 Collision filtering allows you to efficiently prevent collision between shapes.
 For example, say you make a character that rides a bicycle. You want the
 bicycle to collide with the terrain and the character to collide with
@@ -866,6 +873,7 @@ Collision groups have a higher priority than categories and masks.
 
 Note that additional collision filtering occurs automatically in Box3D. Here is a
 list:
+
 - A shape on a static body can only collide with a dynamic body.
 - A shape on a kinematic body can only collide with a dynamic body.
 - Shapes on the same body never collide with each other.
@@ -878,6 +886,7 @@ an existing shape using `b3Shape_GetFilter()` and
 it causes contacts to be destroyed.
 
 ### Sensors
+
 Sometimes game logic needs to know when two shapes overlap yet there
 should be no collision response. This is done by using sensors. A sensor
 is a shape that detects overlap but does not produce a response.

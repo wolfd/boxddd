@@ -52,7 +52,13 @@ B3_API float b3GetStallThreshold( void );
 // @warning modifying this can have a significant impact on stability
 #define B3_LINEAR_SLOP ( 0.005f * b3GetLengthUnitsPerMeter() )
 
+/// The minimum length of a capsules. Very short capsules should be created as spheres
+/// to avoid numerical problems.
 #define B3_MIN_CAPSULE_LENGTH ( B3_LINEAR_SLOP )
+
+/// Minimum contact point friction weight, lower bound for speculative points. Made small
+/// enough to be washed away by weights that hit 1.
+#define B3_MIN_FRICTION_WEIGHT ( 1e-10f )
 
 /// The distance between shapes where they are considered overlapped. This is needed
 /// because GJK may return small positive values for overlapped shapes in degenerate
@@ -96,19 +102,6 @@ B3_API float b3GetStallThreshold( void );
 
 /// The time that a body must be still before it will go to sleep. In seconds.
 #define B3_TIME_TO_SLEEP 0.5f
-
-/// Maximum length of the body name. Can be 0 if you don't need names.
-/// Note: this gates recording capability.
-#ifndef B3_BODY_NAME_LENGTH
-#define B3_BODY_NAME_LENGTH 18
-#endif
-
-/// Maximum length of the shape name. Can be 0 if you don't need names.
-/// Note: this gates recording capability.
-/// todo waiting on this because it breaks existing recordings
-#ifndef B3_SHAPE_NAME_LENGTH
-#define B3_SHAPE_NAME_LENGTH 18
-#endif
 
 /// The maximum number of contact points between two touching shapes.
 #define B3_MAX_MANIFOLD_POINTS 4

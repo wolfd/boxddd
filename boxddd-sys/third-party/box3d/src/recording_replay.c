@@ -14,6 +14,7 @@
 
 #include "box3d/box3d.h"
 
+#include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -375,8 +376,8 @@ b3MotionLocks b3RecR_LOCKS( b3RecReader* rdr )
 // Rotating set of static string buffers, valid until the next 4 STR reads.
 const char* b3RecR_STR( b3RecReader* rdr )
 {
-	char* buf = rdr->strBufs[rdr->strNext];
-	rdr->strNext = ( rdr->strNext + 1 ) & 3;
+	char* buf = rdr->stringBuffers[rdr->nextString];
+	rdr->nextString = ( rdr->nextString + 1 ) & 3;
 
 	uint16_t len = b3RecR_U16( rdr );
 	if ( len == 0xFFFFu )
@@ -385,9 +386,9 @@ const char* b3RecR_STR( b3RecReader* rdr )
 	}
 
 	int n = (int)len;
-	if ( n > B3_BODY_NAME_LENGTH )
+	if ( n > B3_MAX_NAME_LENGTH )
 	{
-		n = B3_BODY_NAME_LENGTH;
+		n = B3_MAX_NAME_LENGTH;
 	}
 	b3RecRdrCheck( rdr, (int)len );
 	if ( rdr->ok && n > 0 )
@@ -441,6 +442,8 @@ b3BodyDef b3RecR_BODYDEF( b3RecReader* rdr )
 b3ShapeDef b3RecR_SHAPEDEF( b3RecReader* rdr )
 {
 	b3ShapeDef def = b3DefaultShapeDef();
+
+	def.name = b3RecR_STR( rdr );
 	(void)b3RecR_U64( rdr ); // userData placeholder
 
 	int matCount = b3RecR_I32( rdr );
@@ -480,6 +483,7 @@ b3ShapeDef b3RecR_SHAPEDEF( b3RecReader* rdr )
 	def.enablePreSolveEvents = b3RecR_BOOL( rdr );
 	def.invokeContactCreation = b3RecR_BOOL( rdr );
 	def.updateBodyMass = b3RecR_BOOL( rdr );
+	def.enableSpeculativeContact = b3RecR_BOOL( rdr );
 	def.userData = NULL;
 	return def;
 }
@@ -1067,13 +1071,18 @@ static void b3RecDispatch_CreateCompoundShape( const b3RecArgs_CreateCompoundSha
 	b3BodyId bodyId = b3RecMakeBodyId( rdr, a->body );
 	// b3CreateCompoundShape takes a non-const def pointer; cast away const for the scratch def
 	b3ShapeDef shapeDef = a->def;
-	b3ShapeId gotId = b3CreateCompoundShape( bodyId, &shapeDef, compound );
+	b3ShapeId gotId = b3CreateBakedCompoundShape( bodyId, &shapeDef, compound );
 	b3RecCheckShapeId( rdr, gotId, recId );
 }
 
 static void b3RecDispatch_DestroyShape( const b3RecArgs_DestroyShape* a, b3RecReader* rdr )
 {
 	b3DestroyShape( b3RecMakeShapeId( rdr, a->shape ), a->updateBodyMass );
+}
+
+static void b3RecDispatch_ShapeSetName( const b3RecArgs_ShapeSetName* a, b3RecReader* rdr )
+{
+	b3Shape_SetName( b3RecMakeShapeId( rdr, a->shape ), a->name );
 }
 
 static void b3RecDispatch_ShapeSetDensity( const b3RecArgs_ShapeSetDensity* a, b3RecReader* rdr )
@@ -1631,8 +1640,7 @@ static void b3RecDispatch_StateHash( const b3RecArgs_StateHash* a, b3RecReader* 
 	uint64_t computed = b3HashWorldState( world );
 	if ( computed != a->hash )
 	{
-		printf( "b3ReplayFile: StateHash mismatch (recorded=0x%llX, computed=0x%llX)\n", (unsigned long long)a->hash,
-				(unsigned long long)computed );
+		printf( "b3ReplayFile: StateHash mismatch (recorded=0x%" PRIx64 ", computed=0x%" PRIx64 ")\n", a->hash, computed );
 		rdr->diverged = true;
 	}
 }
@@ -2088,6 +2096,7 @@ static int b3RecDispatchOne( b3RecReader* rdr )
 	{
 		return -1;
 	}
+
 	int payloadStart = rdr->cursor;
 
 	switch ( opcode )
@@ -2332,14 +2341,14 @@ static void b3RecLoadTags( b3RecReader* rdr, const uint8_t* rp, const uint8_t* d
 		{
 			break;
 		}
-		int n = len > B3_BODY_NAME_LENGTH ? B3_BODY_NAME_LENGTH : (int)len;
+		int n = len > B3_MAX_QUERY_NAME_LENGTH ? B3_MAX_QUERY_NAME_LENGTH : (int)len;
 		tags[loaded].key = key;
 		tags[loaded].id = id;
 		if ( n > 0 )
 		{
-			memcpy( tags[loaded].name, sub.data + sub.cursor, (size_t)n );
+			memcpy( tags[loaded].queryName, sub.data + sub.cursor, (size_t)n );
 		}
-		tags[loaded].name[n] = '\0';
+		tags[loaded].queryName[n] = '\0';
 		sub.cursor += len;
 		b3RecTagLookup_insert( map, key, loaded );
 		loaded += 1;
@@ -2651,6 +2660,7 @@ static void b3RecPlayerRestoreKeyframe( b3RecPlayer* player, const b3RecKeyframe
 	player->frame = kf->frame;
 	player->divergeFrame = kf->divergeFrame;
 	player->atEnd = false;
+	player->atPreStep = false;
 
 	// Restore the outliner list verbatim so ordinals match this frame.
 	b3RecGrow( (void**)&player->bodyIds, &player->bodyIdCap, kf->bodyIdCount, 0, (int)sizeof( b3BodyId ) );
@@ -2732,10 +2742,10 @@ b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
 	int registryEnd = (int)registryEnd64;
 
 	// Own a private copy so the caller can free their buffer right away.
-	uint8_t* copy = (uint8_t*)b3Alloc( (size_t)size );
+	uint8_t* copy = b3Alloc( (size_t)size );
 	memcpy( copy, data, (size_t)size );
 
-	b3RecPlayer* player = (b3RecPlayer*)b3Alloc( sizeof( b3RecPlayer ) );
+	b3RecPlayer* player = b3Alloc( sizeof( b3RecPlayer ) );
 	memset( player, 0, sizeof( b3RecPlayer ) );
 
 	player->data = copy;
@@ -2750,6 +2760,7 @@ b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
 	player->recordedSubStepCount = 0;
 	player->recordedWorkerCount = workerCount;
 	player->atEnd = false;
+	player->atPreStep = false;
 	player->divergeFrame = -1;
 	player->keyframeMinInterval = B3_REC_KEYFRAME_INTERVAL_DEFAULT;
 	player->keyframeInterval = B3_REC_KEYFRAME_INTERVAL_DEFAULT;
@@ -2914,6 +2925,9 @@ void b3RecPlayer_Destroy( b3RecPlayer* player )
 
 bool b3RecPlayer_StepFrame( b3RecPlayer* player )
 {
+	// This is never true when full stepping
+	player->atPreStep = false;
+
 	if ( player->atEnd )
 	{
 		return false;
@@ -2975,6 +2989,91 @@ bool b3RecPlayer_StepFrame( b3RecPlayer* player )
 	}
 }
 
+void b3RecPlayer_SubStepFrame( b3RecPlayer* player )
+{
+	if ( player->atEnd )
+	{
+		return;
+	}
+
+	// Reset the per-frame query store before this frame's records are dispatched.
+	if ( player->atPreStep == false )
+	{
+		player->frameQueryCount = 0;
+		player->frameHitCount = 0;
+	}
+
+	// A frame is its leading inputs (queries and between-step mutators), one Step, and the Step's
+	// trailing StateHash. Queries are recorded before the Step they belong to, so they stash here
+	// against the world state they were computed for.
+	bool stepped = false;
+	bool haveCreateBodyOp = false;
+	for ( ;; )
+	{
+		if ( player->rdr.cursor >= player->registryEnd || !player->rdr.ok )
+		{
+			player->atEnd = true;
+			player->atPreStep = false;
+			return;
+		}
+
+		// Once stepped, the StateHash is the only record still belonging to this frame. Anything else
+		// begins the next frame, so stop and let the next StepFrame consume it. Capture a keyframe at
+		// the boundary.
+		uint8_t currentOpCode = player->rdr.data[player->rdr.cursor];
+		if ( stepped && currentOpCode != b3_recOpStateHash )
+		{
+			if ( player->frame > player->lastKeyframeFrame && player->frame % player->keyframeInterval == 0 )
+			{
+				b3RecCaptureKeyframe( player );
+			}
+			return;
+		}
+
+		if ( player->atPreStep == false && haveCreateBodyOp == true && currentOpCode == b3_recOpStep )
+		{
+			player->atPreStep = true;
+			return;
+		}
+
+		int op = b3RecDispatchOne( &player->rdr );
+		if ( op < 0 )
+		{
+			player->atEnd = true;
+			player->atPreStep = false;
+			return;
+		}
+		if ( op == b3_recOpDestroyWorld ) // end of recording
+		{
+			player->atEnd = true;
+			player->atPreStep = false;
+			return;
+		}
+
+		if ( op == b3_recOpCreateBody )
+		{
+			B3_ASSERT( player->atPreStep == false );
+			haveCreateBodyOp = true;
+		}
+
+		if ( op == b3_recOpStep )
+		{
+			player->atPreStep = false;
+			player->frame += 1;
+			stepped = true;
+		}
+		else if ( op == b3_recOpStateHash ) // trailing record of the frame just stepped
+		{
+			// Latch the first frame whose state hash diverged. The hash belongs to the frame Step just
+			// advanced, so latch against the current frame, not the next Step which would be one late.
+			if ( player->divergeFrame < 0 && player->rdr.diverged )
+			{
+				player->divergeFrame = player->frame;
+			}
+		}
+	}
+}
+
 void b3RecPlayer_Restart( b3RecPlayer* player )
 {
 	// Restore the frame-0 image in place so the replay world id stays stable across a restart or
@@ -2991,6 +3090,7 @@ void b3RecPlayer_Restart( b3RecPlayer* player )
 	player->frame = 0;
 	player->divergeFrame = -1;
 	player->atEnd = false;
+	player->atPreStep = false;
 
 	// Frame 0 is the pre-step snapshot with no recorded queries, so clear the per-frame store. This
 	// keeps the last stepped frame's queries from lingering on a restart or a backward scrub to 0.
@@ -3012,6 +3112,9 @@ void b3RecPlayer_SeekFrame( b3RecPlayer* player, int targetFrame )
 	{
 		return;
 	}
+
+	player->atPreStep = false;
+
 	if ( targetFrame < 0 )
 	{
 		targetFrame = 0;
@@ -3069,6 +3172,11 @@ int b3RecPlayer_GetFrameCount( const b3RecPlayer* player )
 bool b3RecPlayer_IsAtEnd( const b3RecPlayer* player )
 {
 	return player != NULL ? player->atEnd : true;
+}
+
+bool b3RecPlayer_IsAtPreStep( const b3RecPlayer* player )
+{
+	return player != NULL ? player->atPreStep : false;
 }
 
 bool b3RecPlayer_HasDiverged( const b3RecPlayer* player )
@@ -3386,22 +3494,22 @@ void b3RecPlayer_DrawFrameQueries( b3RecPlayer* player, b3DebugDraw* draw, int q
 				if ( b3RecTagLookup_is_end( it ) == false )
 				{
 					const b3RecTag* tag = &player->rdr.tags[it.data->val];
-					name = tag->name;
+					name = tag->queryName;
 					id = tag->id;
 				}
 			}
 			char label[64];
 			if ( name != NULL && name[0] != '\0' && id != 0 )
 			{
-				snprintf( label, sizeof( label ), "%s (%llu)", name, (unsigned long long)id );
+				snprintf( label, sizeof( label ), "%.40s (%" PRIu64 ")", name, id );
 			}
 			else if ( name != NULL && name[0] != '\0' )
 			{
-				snprintf( label, sizeof( label ), "%s", name );
+				snprintf( label, sizeof( label ), "%.40s", name );
 			}
 			else
 			{
-				snprintf( label, sizeof( label ), "#%llu", (unsigned long long)id );
+				snprintf( label, sizeof( label ), "#%" PRIu64, id );
 			}
 			b3Pos labelPos = q->origin;
 			if ( q->kind == B3_RECQ_OVERLAP_AABB )
@@ -3457,7 +3565,7 @@ b3RecQueryInfo b3RecPlayer_GetFrameQuery( const b3RecPlayer* player, int index )
 			const b3RecTag* tag = &player->rdr.tags[it.data->val];
 			info.id = tag->id;
 			// An id-only tag interns an empty name; report it as none so the viewer shows the id alone.
-			info.name = tag->name[0] != '\0' ? tag->name : NULL;
+			info.name = tag->queryName[0] != '\0' ? tag->queryName : NULL;
 		}
 	}
 	return info;

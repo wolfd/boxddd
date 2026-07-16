@@ -409,7 +409,8 @@ impl World {
     pub fn try_body_local_center_of_mass(&self, body_id: BodyId) -> Result<Vec3> {
         let _guard = self.lock_body_checked(body_id)?;
         Ok(Vec3::from_raw(unsafe {
-            ffi::b3Body_GetLocalCenterOfMass(body_id.into_raw())
+            // Box3D renamed b3Body_GetLocalCenterOfMass -> b3Body_GetLocalCenter.
+            ffi::b3Body_GetLocalCenter(body_id.into_raw())
         }))
     }
 
@@ -417,7 +418,8 @@ impl World {
     pub fn try_body_world_center_of_mass(&self, body_id: BodyId) -> Result<Pos> {
         let _guard = self.lock_body_checked(body_id)?;
         Ok(Pos::from_raw(unsafe {
-            ffi::b3Body_GetWorldCenterOfMass(body_id.into_raw())
+            // Box3D renamed b3Body_GetWorldCenterOfMass -> b3Body_GetWorldCenter.
+            ffi::b3Body_GetWorldCenter(body_id.into_raw())
         }))
     }
 

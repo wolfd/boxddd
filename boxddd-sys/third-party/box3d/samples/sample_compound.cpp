@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Erin Catto
 // SPDX-License-Identifier: MIT
 
+#include "gfx/debug_adapter.h"
 #include "gfx/draw.h"
 #include "human.h"
 #include "mesh_loader.h"
@@ -50,7 +51,7 @@ public:
 			b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
 
 			b3ShapeDef shapeDef = b3DefaultShapeDef();
-			(void)b3CreateCompoundShape( groundId, &shapeDef, m_compound );
+			(void)b3CreateBakedCompoundShape( groundId, &shapeDef, m_compound );
 		}
 
 		b3World_SetContactRecycleDistance( m_worldId, 0.0f );
@@ -137,7 +138,7 @@ public:
 		b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
 
 		b3ShapeDef shapeDef = b3DefaultShapeDef();
-		(void)b3CreateCompoundShape( groundId, &shapeDef, m_compound );
+		(void)b3CreateBakedCompoundShape( groundId, &shapeDef, m_compound );
 	}
 
 	~CompoundSpheres() override
@@ -211,7 +212,7 @@ public:
 		b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
 
 		b3ShapeDef shapeDef = b3DefaultShapeDef();
-		(void)b3CreateCompoundShape( groundId, &shapeDef, m_compound );
+		(void)b3CreateBakedCompoundShape( groundId, &shapeDef, m_compound );
 	}
 
 	~CompoundHulls() override
@@ -296,7 +297,7 @@ public:
 			b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
 
 			b3ShapeDef shapeDef = b3DefaultShapeDef();
-			(void)b3CreateCompoundShape( groundId, &shapeDef, m_compound );
+			(void)b3CreateBakedCompoundShape( groundId, &shapeDef, m_compound );
 
 			delete[] hulls;
 			hulls = nullptr;
@@ -419,7 +420,7 @@ public:
 			b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
 
 			b3ShapeDef shapeDef = b3DefaultShapeDef();
-			(void)b3CreateCompoundShape( groundId, &shapeDef, m_compound );
+			(void)b3CreateBakedCompoundShape( groundId, &shapeDef, m_compound );
 		}
 
 #if 0
@@ -649,7 +650,7 @@ public:
 			b3BodyId groundId = b3CreateBody( m_worldId, &bodyDef );
 
 			b3ShapeDef shapeDef = b3DefaultShapeDef();
-			(void)b3CreateCompoundShape( groundId, &shapeDef, m_compound );
+			(void)b3CreateBakedCompoundShape( groundId, &shapeDef, m_compound );
 
 			delete[] capsules;
 			capsules = nullptr;
@@ -696,6 +697,10 @@ public:
 		int treeBytes = b3DynamicTree_GetByteCount( &m_compound->tree );
 		int height = b3DynamicTree_GetHeight( &m_compound->tree );
 		DrawTextLine( "compound tree byte count = %d, height = %d", treeBytes, height );
+
+		int total = 0;
+		int drawn = GetLastCompoundDrawStats( &total );
+		DrawTextLine( "compound children drawn = %d / %d", drawn, total );
 	}
 
 	void Step() override

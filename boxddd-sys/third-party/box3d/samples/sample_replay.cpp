@@ -11,6 +11,7 @@
 
 #include <ctype.h>
 #include <float.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -179,7 +180,7 @@ static void FormatQueryLabel( char* out, int cap, const char* name, uint64_t id,
 {
 	if ( name != nullptr && id != 0 )
 	{
-		snprintf( out, cap, "%s (%llu)", name, (unsigned long long)id );
+		snprintf( out, cap, "%s (%" PRIu64 ")", name, id );
 	}
 	else if ( name != nullptr )
 	{
@@ -187,7 +188,7 @@ static void FormatQueryLabel( char* out, int cap, const char* name, uint64_t id,
 	}
 	else if ( id != 0 )
 	{
-		snprintf( out, cap, "#%llu", (unsigned long long)id );
+		snprintf( out, cap, "#%" PRIu64, id );
 	}
 	else
 	{
@@ -226,6 +227,7 @@ public:
 		m_speed = 1.0f;
 		m_frameAccumulator = 0.0f;
 		m_loop = false;
+		m_subStepOnCreate = false;
 		m_selKind = SelNone;
 		m_selBodyOrdinal = -1;
 		m_selSlot = -1;
@@ -493,20 +495,30 @@ public:
 	}
 
 	// Advance one recorded step and keep the world pointer current (stable forward, refreshed cheaply).
-	void AdvanceOne()
+	// Staged first parks at a frame's pre-integration pose when it spawns bodies, so the creation
+	// transform is drawn before the solver moves them; the next advance runs the step.
+	void AdvanceOne( bool staged )
 	{
-		b3RecPlayer_StepFrame( m_player );
+		if ( staged )
+		{
+			b3RecPlayer_SubStepFrame( m_player );
+		}
+		else
+		{
+			b3RecPlayer_StepFrame( m_player );
+		}
 		m_replayWorldId = b3RecPlayer_GetWorldId( m_player );
 	}
 
 	void Step() override
 	{
+		SetDrawOrigin( m_camera->DrawOrigin() );
+
 		// Generation runs inside the imgui frame (DrawLoadPopup). While it fast-forwards, the world is
 		// mid-replay, so hold off drawing it.
 		if ( m_generating )
 		{
 			m_stepCount = m_player != nullptr ? b3RecPlayer_GetFrame( m_player ) : 0;
-			SetDrawOrigin( m_camera->DrawOrigin() );
 			return;
 		}
 
@@ -517,7 +529,7 @@ public:
 				m_context->singleStep = b3MaxInt( 0, m_context->singleStep - 1 );
 				if ( b3RecPlayer_IsAtEnd( m_player ) == false )
 				{
-					AdvanceOne();
+					AdvanceOne( m_subStepOnCreate );
 				}
 				m_frameAccumulator = 0.0f;
 			}
@@ -541,15 +553,13 @@ public:
 							break;
 						}
 					}
-					AdvanceOne();
+					AdvanceOne( false );
 				}
 			}
 
 			// Keep the info panel "step N" line on the replay frame.
 			m_stepCount = b3RecPlayer_GetFrame( m_player );
 		}
-
-		SetDrawOrigin( m_camera->DrawOrigin() );
 
 		if ( B3_IS_NULL( m_replayWorldId ) )
 		{
@@ -562,6 +572,7 @@ public:
 		MakeDebugDraw( &debugDraw );
 		ApplyGuiFlags( &debugDraw );
 		debugDraw.drawingBounds = m_camera->DrawBounds(); // view-distance box in length units around the eye
+		SetViewBounds( debugDraw.drawingBounds );
 
 		// Drive the shared outline highlight from the selection. A shape selection outlines that
 		// shape alone, a body selection outlines the whole body. Set before the draw so the mask
@@ -714,8 +725,17 @@ public:
 		ImGui::SameLine();
 		if ( ImGui::Button( ">" ) )
 		{
-			b3RecPlayer_SeekFrame( m_player, frame + 1 );
-			m_replayWorldId = b3RecPlayer_GetWorldId( m_player );
+			// Staged forward keeps the creation-pose park reachable and resumes it; a plain seek
+			// always lands on a whole frame and would skip past the pre-step.
+			if ( m_subStepOnCreate )
+			{
+				AdvanceOne( true );
+			}
+			else
+			{
+				b3RecPlayer_SeekFrame( m_player, frame + 1 );
+				m_replayWorldId = b3RecPlayer_GetWorldId( m_player );
+			}
 			m_frameAccumulator = 0.0f;
 			m_context->pause = true;
 		}
@@ -759,8 +779,10 @@ public:
 			ImGui::TextColored( PanelColor( b3_colorRed ), "****DIVERGED****" );
 		}
 
-		ImGui::TextDisabled( "Frame %d / %d%s", b3RecPlayer_GetFrame( m_player ), m_info.frameCount,
-							 b3RecPlayer_IsAtEnd( m_player ) ? "  (end)" : "" );
+		const char* phaseTag = b3RecPlayer_IsAtEnd( m_player )		 ? "  (end)"
+							   : b3RecPlayer_IsAtPreStep( m_player ) ? "  (pre-step)"
+																	 : "";
+		ImGui::TextDisabled( "Frame %d / %d%s", b3RecPlayer_GetFrame( m_player ), m_info.frameCount, phaseTag );
 
 		// Selection detail lives here in the info panel, not the Outline window, so the scene tree gets
 		// the full left column. The child takes the remaining panel height and scrolls a long detail.
@@ -917,7 +939,7 @@ public:
 		int count = b3Body_GetContactData( body, contacts, capacity );
 		for ( int i = 0; i < count; ++i )
 		{
-			b3Pos originA = b3Body_GetWorldCenterOfMass( b3Shape_GetBody( contacts[i].shapeIdA ) );
+			b3Pos originA = b3Body_GetWorldCenter( b3Shape_GetBody( contacts[i].shapeIdA ) );
 			for ( int m = 0; m < contacts[i].manifoldCount; ++m )
 			{
 				const b3Manifold* manifold = &contacts[i].manifolds[m];
@@ -944,7 +966,7 @@ public:
 			}
 			b3BodyId body = b3Shape_GetBody( shape );
 			DrawAxes( b3Body_GetTransform( body ), 0.5f );
-			DrawPoint( b3Body_GetWorldCenterOfMass( body ), 8.0f, MakeColor( b3_colorYellow ) );
+			DrawPoint( b3Body_GetWorldCenter( body ), 8.0f, MakeColor( b3_colorYellow ) );
 			DrawBodyContacts( body );
 		}
 		else if ( m_selKind == SelBody )
@@ -955,7 +977,7 @@ public:
 				return;
 			}
 			DrawAxes( b3Body_GetTransform( body ), 0.5f );
-			DrawPoint( b3Body_GetWorldCenterOfMass( body ), 8.0f, MakeColor( b3_colorYellow ) );
+			DrawPoint( b3Body_GetWorldCenter( body ), 8.0f, MakeColor( b3_colorYellow ) );
 			DrawBodyContacts( body );
 		}
 		else if ( m_selKind == SelJoint )
@@ -969,11 +991,11 @@ public:
 			b3BodyId b = b3Joint_GetBodyB( joint );
 			if ( b3Body_IsValid( a ) )
 			{
-				DrawPoint( b3Body_GetWorldCenterOfMass( a ), 8.0f, MakeColor( b3_colorMagenta ) );
+				DrawPoint( b3Body_GetWorldCenter( a ), 8.0f, MakeColor( b3_colorMagenta ) );
 			}
 			if ( b3Body_IsValid( b ) )
 			{
-				DrawPoint( b3Body_GetWorldCenterOfMass( b ), 8.0f, MakeColor( b3_colorMagenta ) );
+				DrawPoint( b3Body_GetWorldCenter( b ), 8.0f, MakeColor( b3_colorMagenta ) );
 			}
 		}
 	}
@@ -1120,8 +1142,8 @@ public:
 			char base[64];
 			FormatQueryLabel( base, sizeof( base ), row.name, row.id, row.type, row.kindOrdinal );
 			char text[112];
-			snprintf( text, sizeof( text ), "f%-5d %s  (%d)  cat 0x%llx", row.frame, base, row.hitCount,
-					  (unsigned long long)row.filter.categoryBits );
+			snprintf( text, sizeof( text ), "f%-5d %s  (%d)  cat 0x%" PRIx64, row.frame, base, row.hitCount,
+					  row.filter.categoryBits );
 			if ( ContainsNoCase( text, m_querySearch ) == false )
 			{
 				continue;
@@ -1176,8 +1198,8 @@ public:
 		int count = b3RecPlayer_GetBodyCount( m_player );
 		for ( int ord = 0; ord < count; ++ord )
 		{
-			b3BodyId body = b3RecPlayer_GetBodyId( m_player, ord );
-			if ( B3_IS_NULL( body ) || b3Body_IsValid( body ) == false )
+			b3BodyId bodyId = b3RecPlayer_GetBodyId( m_player, ord );
+			if ( B3_IS_NULL( bodyId ) || b3Body_IsValid( bodyId ) == false )
 			{
 				continue;
 			}
@@ -1185,10 +1207,15 @@ public:
 			bool ownsSelection =
 				m_selBodyOrdinal == ord && ( m_selKind == SelBody || m_selKind == SelShape || m_selKind == SelJoint );
 
-			const char* name = b3Body_GetName( body );
+			const char* bodyName = b3Body_GetName( bodyId );
+			if ( bodyName == nullptr || bodyName[0] == 0 )
+			{
+				b3BodyType bodyType = b3Body_GetType( bodyId );
+				bodyName = ReplayBodyTypeName( bodyType );
+			}
+
 			char label[64];
-			snprintf( label, sizeof( label ), "Body %d  %s###b%d", ord,
-					  ( name != nullptr && name[0] != '\0' ) ? name : ReplayBodyTypeName( b3Body_GetType( body ) ), ord );
+			snprintf( label, sizeof( label ), "Body %d  %s###b%d", ord, bodyName, ord );
 
 			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 			if ( m_selKind == SelBody && m_selBodyOrdinal == ord )
@@ -1216,12 +1243,17 @@ public:
 				continue;
 			}
 
-			BodyShapes( m_shapeBuffer, body );
+			BodyShapes( m_shapeBuffer, bodyId );
 			for ( int s = 0; s < (int)m_shapeBuffer.size(); ++s )
 			{
-				b3ShapeType shapeType = b3Shape_GetType( m_shapeBuffer[s] );
+				const char* shapeName = b3Shape_GetName( m_shapeBuffer[s] );
+				if ( shapeName == nullptr || shapeName[0] == 0 )
+				{
+					b3ShapeType shapeType = b3Shape_GetType( m_shapeBuffer[s] );
+					shapeName = ReplayShapeTypeName( shapeType );
+				}
 				char sl[64];
-				snprintf( sl, sizeof( sl ), "Shape %d  %s###b%ds%d", s, ReplayShapeTypeName( shapeType ), ord, s );
+				snprintf( sl, sizeof( sl ), "Shape %d  %s###b%ds%d", s, shapeName, ord, s );
 				ImGuiTreeNodeFlags lf =
 					ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 				if ( m_selKind == SelShape && m_selBodyOrdinal == ord && m_selSlot == s )
@@ -1242,7 +1274,7 @@ public:
 			}
 
 			b3JointId joints[16];
-			int jn = b3Body_GetJoints( body, joints, 16 );
+			int jn = b3Body_GetJoints( bodyId, joints, 16 );
 			for ( int j = 0; j < jn; ++j )
 			{
 				char jl[64];
@@ -1418,8 +1450,8 @@ public:
 		ImGui::Text( "id      %d", shape.index1 );
 		ImGui::Text( "type     %s", ReplayShapeTypeName( b3Shape_GetType( shape ) ) );
 		b3Filter f = b3Shape_GetFilter( shape );
-		ImGui::Text( "category 0x%016llx", (unsigned long long)f.categoryBits );
-		ImGui::Text( "mask     0x%016llx", (unsigned long long)f.maskBits );
+		ImGui::Text( "category 0x%016" PRIx64, f.categoryBits );
+		ImGui::Text( "mask     0x%016" PRIx64, f.maskBits );
 		ImGui::Text( "group    %d", f.groupIndex );
 		ImGui::Text( "density  %.3g", b3Shape_GetDensity( shape ) );
 		ImGui::Text( "friction %.3g", b3Shape_GetFriction( shape ) );
@@ -1526,7 +1558,7 @@ public:
 		}
 		if ( q.id != 0 )
 		{
-			ImGui::Text( "id       %llu", (unsigned long long)q.id );
+			ImGui::Text( "id       %" PRIu64, q.id );
 		}
 		if ( q.key != 0 )
 		{
@@ -1536,8 +1568,8 @@ public:
 		{
 			ImGui::Text( "type     %s #%d", ReplayQueryTypeName( q.type ), m_selQueryKindOrdinal );
 		}
-		ImGui::Text( "category 0x%016llx", (unsigned long long)q.filter.categoryBits );
-		ImGui::Text( "mask     0x%016llx", (unsigned long long)q.filter.maskBits );
+		ImGui::Text( "category 0x%016" PRIx64, q.filter.categoryBits );
+		ImGui::Text( "mask     0x%016" PRIx64, q.filter.maskBits );
 		if ( q.type != b3_recQueryOverlapAABB )
 		{
 			ImGui::Text( "origin   (%.2f, %.2f, %.2f)", q.origin.x, q.origin.y, q.origin.z );
@@ -1607,6 +1639,11 @@ public:
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		ImGui::Checkbox( "Loop", &m_loop );
+		ImGui::SameLine();
+
+		// Single-step parks at a frame's pre-integration pose when it spawns bodies, so a new body
+		// shows at its creation transform before the solver moves it. Forward single-step only.
+		ImGui::Checkbox( "Sub-step spawns", &m_subStepOnCreate );
 		ImGui::SameLine();
 
 		// Replaying at a different worker count re-partitions the constraint graph, a visual
@@ -1698,6 +1735,7 @@ public:
 	float m_speed;
 	float m_frameAccumulator;
 	bool m_loop;
+	bool m_subStepOnCreate; // single-step parks at a frame's pre-integration pose when it spawns bodies
 
 	bool m_selectTimelineTab; // one-shot: focus the Timeline tab on the next draw
 	bool m_prevShowMetrics;	  // restore the drawer state on exit

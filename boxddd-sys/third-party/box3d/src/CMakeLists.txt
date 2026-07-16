@@ -47,6 +47,8 @@ set(BOX3D_SOURCE_FILES
 	mesh_contact.c
 	motor_joint.c
 	mover.c
+	name_cache.c
+	name_cache.h
 	parallel_for.c
 	parallel_for.h
 	parallel_joint.c
@@ -198,7 +200,8 @@ elseif (APPLE)
 	target_compile_options(box3d PRIVATE -Wmissing-prototypes -Wall -Wextra -pedantic)
 elseif (EMSCRIPTEN)
 	message(STATUS "Box3D on Emscripten")
-	target_compile_options(box3d PRIVATE -msimd128 -msse2)
+	# SSE2/wasm SIMD flags are set directory-wide in the top-level CMakeLists so the
+	# tests, which include simd.h, get them too.
 elseif (UNIX)
 	message(STATUS "Box3D using Unix")
 	target_compile_options(box3d PRIVATE -Wmissing-prototypes -Wall -Wextra -pedantic -Wno-unused-value)

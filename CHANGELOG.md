@@ -10,7 +10,21 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Vendored Box3D updated `29bf523` → `d421e45` (Fixes 03, set-mass-data consistent velocity, name cache, ghost collision improvements, edge-edge optimization, friction center weighted average, benchmark refresh). Simulation results may differ from the previous vendored snapshot.
+- `try_body_local_center_of_mass` / `try_body_world_center_of_mass` now call the renamed `b3Body_GetLocalCenter` / `b3Body_GetWorldCenter`; Rust method names are unchanged.
+- `collide_hull_and_triangle` passes the new upstream `enableSpeculative` parameter as `true` (the upstream default).
+
+### Added
+
+- `World::try_set_shape_name` / `try_shape_name` wrapping the new `b3Shape_SetName` / `b3Shape_GetName`.
+- `RecPlayer::sub_step_frame` / `is_at_pre_step` wrapping the new replay sub-step scrubbing API.
+
+### Removed
+
+- `DebugDrawOptions::draw_friction_forces`: upstream removed `b3DebugDraw.drawFrictionForces`.
+- Raw bindings for `b3World_Dump`, `b3World_DumpAwake`, `b3WriteBinaryFile`, and `b3ReadBinaryFile`: removed upstream.
 
 ## [0.2.0] - 2026-07-06
 

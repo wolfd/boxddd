@@ -71,6 +71,27 @@ impl World {
         Ok(unsafe { ffi::b3Shape_GetFriction(shape_id.into_raw()) })
     }
 
+    /// Tries to set the shape name. Box3D copies the string into its name
+    /// cache, so the argument does not need to outlive the call.
+    pub fn try_set_shape_name(&mut self, shape_id: ShapeId, name: impl Into<Vec<u8>>) -> Result<()> {
+        let name = CString::new(name).map_err(|_| Error::NulByteInString)?;
+        let _guard = self.lock_shape_checked(shape_id)?;
+        unsafe { ffi::b3Shape_SetName(shape_id.into_raw(), name.as_ptr()) };
+        Ok(())
+    }
+
+    /// Tries to return the shape name, if one is set. Box3D reports an unset
+    /// name as an empty string; that maps to `None`.
+    pub fn try_shape_name(&self, shape_id: ShapeId) -> Result<Option<String>> {
+        let _guard = self.lock_shape_checked(shape_id)?;
+        let ptr = unsafe { ffi::b3Shape_GetName(shape_id.into_raw()) };
+        if ptr.is_null() {
+            return Ok(None);
+        }
+        let name = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+        Ok((!name.is_empty()).then_some(name))
+    }
+
     /// Tries to set the shape restitution coefficient.
     pub fn try_set_shape_restitution(&mut self, shape_id: ShapeId, restitution: f32) -> Result<()> {
         validate_nonnegative_scalar(restitution)?;

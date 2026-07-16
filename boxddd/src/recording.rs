@@ -440,6 +440,21 @@ impl RecPlayer {
         Ok(unsafe { ffi::b3RecPlayer_StepFrame(self.raw.as_ptr()) })
     }
 
+    /// Advances the replay by one solver sub-step within the current frame.
+    pub fn sub_step_frame(&mut self) -> Result<()> {
+        callback_state::check_not_in_callback()?;
+        let _guard = box3d_lock::lock();
+        unsafe { ffi::b3RecPlayer_SubStepFrame(self.raw.as_ptr()) };
+        Ok(())
+    }
+
+    /// Returns whether the replay is positioned before a frame's first
+    /// sub-step (i.e. at the pre-step boundary).
+    pub fn is_at_pre_step(&self) -> bool {
+        let _guard = box3d_lock::lock();
+        unsafe { ffi::b3RecPlayer_IsAtPreStep(self.raw.as_ptr()) }
+    }
+
     /// Restarts replay from the first recorded frame.
     pub fn restart(&mut self) -> Result<()> {
         callback_state::check_not_in_callback()?;
