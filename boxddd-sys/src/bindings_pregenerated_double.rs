@@ -4300,6 +4300,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[doc = " Get the sleep threshold, usually in meters per second."]
+    pub fn b3Body_GetIslandId(bodyId: b3BodyId) -> ::std::os::raw::c_int;
     pub fn b3Body_GetSleepThreshold(bodyId: b3BodyId) -> f32;
 }
 unsafe extern "C" {

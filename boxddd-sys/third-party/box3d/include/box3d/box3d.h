@@ -686,6 +686,12 @@ B3_API bool b3Body_IsSleepEnabled( b3BodyId bodyId );
 B3_API void b3Body_SetSleepThreshold( b3BodyId bodyId, float sleepThreshold );
 
 /// Get the sleep threshold, usually in meters per second.
+/// Get the solver island this body currently belongs to, or B3_NULL_INDEX if none.
+/// Islands are the unit of sleeping: a single non-sleepy body keeps its whole island
+/// awake, so exposing this makes "which island is pinned awake" observable.
+/// @ingroup body
+B3_API int b3Body_GetIslandId( b3BodyId bodyId );
+
 B3_API float b3Body_GetSleepThreshold( b3BodyId bodyId );
 
 /// Returns true if this body is enabled

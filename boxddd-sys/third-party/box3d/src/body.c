@@ -1977,6 +1977,13 @@ void b3Body_SetSleepThreshold( b3BodyId bodyId, float sleepThreshold )
 	body->sleepThreshold = sleepThreshold;
 }
 
+int b3Body_GetIslandId( b3BodyId bodyId )
+{
+	b3World* world = b3GetWorld( bodyId.world0 );
+	b3Body* body = b3GetBodyFullId( world, bodyId );
+	return body->islandId;
+}
+
 float b3Body_GetSleepThreshold( b3BodyId bodyId )
 {
 	b3World* world = b3GetWorld( bodyId.world0 );

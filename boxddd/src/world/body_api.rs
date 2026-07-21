@@ -528,6 +528,16 @@ impl World {
         Ok(unsafe { ffi::b3Body_GetSleepThreshold(body_id.into_raw()) })
     }
 
+    /// Tries to return the solver island this body belongs to (`None` if it has
+    /// none). Islands are the unit of sleeping — one non-sleepy body keeps its
+    /// whole island awake — so this makes "which island is pinned awake" visible
+    /// to debug tooling.
+    pub fn try_body_island_id(&self, body_id: BodyId) -> Result<Option<i32>> {
+        let _guard = self.lock_body_checked(body_id)?;
+        let id = unsafe { ffi::b3Body_GetIslandId(body_id.into_raw()) };
+        Ok((id >= 0).then_some(id))
+    }
+
     /// Tries to return whether the body is enabled in the simulation.
     pub fn try_body_enabled(&self, body_id: BodyId) -> Result<bool> {
         let _guard = self.lock_body_checked(body_id)?;
