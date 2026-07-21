@@ -138,7 +138,7 @@ impl Profile {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct IslandData {
-    /// Solver set this island lives in. Awake islands are in set 0.
+    /// Solver set this island lives in: 0 static, 1 disabled, 2 awake, 3+ one set per sleeping island.
     pub set_index: i32,
     /// Bodies in the island. Statics are excluded — they belong to no island.
     pub body_count: i32,

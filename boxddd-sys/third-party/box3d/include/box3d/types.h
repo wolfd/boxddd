@@ -598,7 +598,7 @@ typedef struct b3IslandData
 	/// The island id, or -1 if the queried id is not a live island.
 	int islandId;
 
-	/// Solver set this island lives in. Awake islands are in set 0.
+	/// Solver set this island lives in: 0 static, 1 disabled, 2 awake, 3+ one set per sleeping island.
 	int setIndex;
 
 	int bodyCount;
