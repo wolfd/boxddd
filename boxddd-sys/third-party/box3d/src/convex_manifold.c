@@ -1325,6 +1325,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 					 b3Transform transformBtoA, b3SATCache* cache )
 {
 	manifold->pointCount = 0;
+	cache->hit = 0;
 
 	if ( capacity < 4 )
 	{
@@ -1364,6 +1365,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 			if ( separation >= speculativeDistance )
 			{
 				// Cache hit, shapes are separated
+				cache->hit = 1;
 				return;
 			}
 
@@ -1380,6 +1382,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 				if ( touching == true && b3AbsFloat( cache->separation - localCache.separation ) < linearSlop )
 				{
 					// Cache hit, contact points generated
+					cache->hit = 1;
 					return;
 				}
 			}
@@ -1400,6 +1403,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 			if ( separation >= speculativeDistance )
 			{
 				// Cache hit, shapes are separated
+				cache->hit = 1;
 				return;
 			}
 
@@ -1416,6 +1420,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 				if ( touching == true && b3AbsFloat( cache->separation - localCache.separation ) < linearSlop )
 				{
 					// Cache hit, contact points generated
+					cache->hit = 1;
 					return;
 				}
 			}
@@ -1473,6 +1478,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 					if ( separation > speculativeDistance )
 					{
 						// Cache hit, shapes are separated
+						cache->hit = 1;
 						return;
 					}
 
@@ -1488,6 +1494,7 @@ void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* 
 					if ( touching && b3AbsFloat( cache->separation - localCache.separation ) < linearSlop )
 					{
 						// Cache hit, contact point generated
+						cache->hit = 1;
 						return;
 					}
 				}
