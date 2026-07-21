@@ -142,6 +142,35 @@ impl World {
         }))
     }
 
+    /// Tries to return diagnostic counters for one solver island, or `None` if the id is not
+    /// live. Pair with [`World::try_body_island_id`](Self::try_body_island_id) to inspect the
+    /// island a given body belongs to.
+    pub fn try_island_data(&self, island_id: i32) -> Result<Option<IslandData>> {
+        callback_state::check_not_in_callback()?;
+        let _guard = box3d_lock::lock();
+        if !unsafe { ffi::b3World_IsValid(self.raw) } {
+            return Err(Error::InvalidWorldId);
+        }
+        Ok(IslandData::from_raw(unsafe {
+            ffi::b3World_GetIslandData(self.raw, island_id)
+        }))
+    }
+
+    /// Tries to return the island selected for splitting, or `None` if none was selected.
+    ///
+    /// Splitting is lazy: at most one island per step is split, and only islands that have had
+    /// constraints removed are ever candidates. Read between steps, this is the candidate for
+    /// the *next* step, so a persistently `None` result means no island is being broken up.
+    pub fn try_split_island_id(&self) -> Result<Option<i32>> {
+        callback_state::check_not_in_callback()?;
+        let _guard = box3d_lock::lock();
+        if !unsafe { ffi::b3World_IsValid(self.raw) } {
+            return Err(Error::InvalidWorldId);
+        }
+        let id = unsafe { ffi::b3World_GetSplitIslandId(self.raw) };
+        Ok((id >= 0).then_some(id))
+    }
+
     /// Tries to enable or disable sleeping for the entire world.
     pub fn try_enable_sleeping(&mut self, enabled: bool) -> Result<()> {
         callback_state::check_not_in_callback()?;

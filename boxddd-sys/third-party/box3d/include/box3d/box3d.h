@@ -215,6 +215,16 @@ B3_API b3Counters b3World_GetCounters( b3WorldId worldId );
 /// Get max capacity. This can be used with b3WorldDef to avoid run-time allocations and copies
 B3_API b3Capacity b3World_GetMaxCapacity( b3WorldId worldId );
 
+/// Get diagnostic counters for one solver island. Pair with b3Body_GetIslandId to inspect the
+/// island a given body belongs to. Returns a zeroed struct with islandId == -1 if the id is
+/// not a live island.
+B3_API b3IslandData b3World_GetIslandData( b3WorldId worldId, int islandId );
+
+/// Get the island the world selected to split this step, or -1 if none was selected. Splitting
+/// is lazy and limited to one island per step, and only islands with removed constraints are
+/// candidates, so a persistently -1 result means no island is being broken up at all.
+B3_API int b3World_GetSplitIslandId( b3WorldId worldId );
+
 /// Set the user data pointer.
 B3_API void b3World_SetUserData( b3WorldId worldId, void* userData );
 

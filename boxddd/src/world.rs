@@ -13,8 +13,9 @@ use crate::shapes::{
     ShapeMesh, ShapeType, Sphere, SurfaceMaterial, validate_mesh_scale,
 };
 use crate::types::{
-    Aabb, BodyId, Capacity, ContactBuffer, ContactData, ContactId, Counters, Filter, JointId,
-    MassData, Matrix3, MotionLocks, Pos, Profile, Quat, ShapeId, Vec3, Version, WorldTransform,
+    Aabb, BodyId, Capacity, ContactBuffer, ContactData, ContactId, Counters, Filter, IslandData,
+    JointId, MassData, Matrix3, MotionLocks, Pos, Profile, Quat, ShapeId, Vec3, Version,
+    WorldTransform,
 };
 use boxddd_sys::ffi;
 use std::collections::HashMap;

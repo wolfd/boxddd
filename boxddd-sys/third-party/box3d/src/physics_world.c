@@ -2231,6 +2231,46 @@ b3Capacity b3World_GetMaxCapacity( b3WorldId worldId )
 	return world->maxCapacity;
 }
 
+b3IslandData b3World_GetIslandData( b3WorldId worldId, int islandId )
+{
+	b3IslandData data = { 0 };
+	data.islandId = B3_NULL_INDEX;
+
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL || islandId < 0 || islandId >= world->islands.count )
+	{
+		return data;
+	}
+
+	// Freed islands keep their slot but null out their id, so this rejects stale ids.
+	b3Island* island = world->islands.data + islandId;
+	if ( island->islandId != islandId )
+	{
+		return data;
+	}
+
+	data.islandId = island->islandId;
+	data.setIndex = island->setIndex;
+	data.bodyCount = island->bodies.count;
+	data.contactCount = island->contacts.count;
+	data.jointCount = island->joints.count;
+	data.constraintRemoveCount = island->constraintRemoveCount;
+	return data;
+}
+
+int b3World_GetSplitIslandId( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return B3_NULL_INDEX;
+	}
+
+	// Read between steps this is the candidate selected for the NEXT step: the step that
+	// consumes it also clears it, then the sleep phase picks the next one before returning.
+	return world->splitIslandId;
+}
+
 void b3World_SetUserData( b3WorldId worldId, void* userData )
 {
 	b3World* world = b3GetWorldFromId( worldId );

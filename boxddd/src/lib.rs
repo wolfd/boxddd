@@ -112,8 +112,9 @@ pub use shapes::{
 };
 pub use types::{
     Aabb, BodyId, Capacity, ContactBuffer, ContactData, ContactId, ContactView, CosSin, Counters,
-    Filter, JointId, Manifold, ManifoldPoint, MassData, Matrix3, MotionLocks, Plane, Pos, Profile,
-    Quat, SegmentDistanceResult, ShapeId, Transform, Vec2, Vec3, Version, WorldTransform,
+    Filter, IslandData, JointId, Manifold, ManifoldPoint, MassData, Matrix3, MotionLocks, Plane,
+    Pos, Profile, Quat, SegmentDistanceResult, ShapeId, Transform, Vec2, Vec3, Version,
+    WorldTransform,
     closest_point_on_segment, compute_cos_sin, deterministic_atan2, is_valid_float, line_distance,
     segment_distance, steiner_inertia,
 };

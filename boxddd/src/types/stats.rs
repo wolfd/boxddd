@@ -129,6 +129,46 @@ impl Profile {
     }
 }
 
+/// Diagnostic counters for a single solver island.
+///
+/// Islands are the unit of sleeping — one non-sleepy body keeps its whole island awake — and
+/// an island only sleeps after it has been split, which only happens once constraints have
+/// been removed from it. [`Self::constraint_remove_count`] is therefore the gate that decides
+/// whether a settled island is even *eligible* to break apart.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct IslandData {
+    /// Solver set this island lives in. Awake islands are in set 0.
+    pub set_index: i32,
+    /// Bodies in the island. Statics are excluded — they belong to no island.
+    pub body_count: i32,
+    /// Touching contacts linked into the island graph.
+    pub contact_count: i32,
+    /// Joints linked into the island graph.
+    pub joint_count: i32,
+    /// Contacts removed from this island since it was last split. An island is only ever
+    /// nominated for splitting while this is above zero, so a jammed pile whose contacts
+    /// never break holds at zero and can never split, however sleepy its bodies are.
+    pub constraint_remove_count: i32,
+}
+
+impl IslandData {
+    /// Converts raw island data into the Rust value type, or `None` if the id was not live.
+    #[inline]
+    pub const fn from_raw(raw: ffi::b3IslandData) -> Option<Self> {
+        if raw.islandId < 0 {
+            return None;
+        }
+        Some(Self {
+            set_index: raw.setIndex,
+            body_count: raw.bodyCount,
+            contact_count: raw.contactCount,
+            joint_count: raw.jointCount,
+            constraint_remove_count: raw.constraintRemoveCount,
+        })
+    }
+}
+
 /// World counters reported by Box3D for diagnostics and tests.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

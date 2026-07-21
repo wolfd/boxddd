@@ -587,6 +587,29 @@ typedef struct b3Counters
 	int pushBackIterations;
 	int rootIterations;
 } b3Counters;
+
+/// Diagnostic snapshot of one solver island. Islands are the unit of sleeping — a single
+/// non-sleepy body keeps its whole island awake — and an island can only sleep once it has
+/// been split, which in turn only happens when constraints have been removed from it. These
+/// counters make "why is this settled island still awake?" answerable from outside the engine.
+/// @see b3World_GetIslandData
+typedef struct b3IslandData
+{
+	/// The island id, or -1 if the queried id is not a live island.
+	int islandId;
+
+	/// Solver set this island lives in. Awake islands are in set 0.
+	int setIndex;
+
+	int bodyCount;
+	int contactCount;
+	int jointCount;
+
+	/// Contacts removed from this island since it was last split. An island is only ever
+	/// nominated for splitting while this is > 0, so a jammed pile whose contacts never
+	/// break holds at 0 and can never split apart, no matter how sleepy its bodies are.
+	int constraintRemoveCount;
+} b3IslandData;
 //! @endcond
 
 /// Joint type enumeration. This is useful because all joint types use b3JointId and sometimes you
