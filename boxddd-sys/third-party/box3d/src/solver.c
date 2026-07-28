@@ -1482,7 +1482,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		int minBodiesPerBlock = 32;
 		b3BlockDim bodyDim = b3ComputeBlockCount( awakeBodyCount, minBodiesPerBlock, maxBlockCount );
 
-		const int minContactsPerBlock = 4;
+		const int minContactsPerBlock = 2;
 		const int minJointsPerBlock = 4;
 
 		// Configure blocks for tasks parallel-for each active graph color
