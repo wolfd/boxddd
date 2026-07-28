@@ -51,6 +51,29 @@ fn blocking_task_system_steps_world_through_box3d_callbacks() {
 }
 
 #[test]
+fn blocking_task_system_handles_repeated_parallel_steps() {
+    let task_system = TaskSystem::blocking_threads();
+    let def = WorldDef::builder()
+        .gravity(Vec3::new(0.0, -10.0, 0.0))
+        .worker_count(4)
+        .task_system(task_system.clone())
+        .build();
+    let mut world = World::new(def).unwrap();
+    populate_parallel_scene(&mut world);
+
+    for _ in 0..32 {
+        world.try_step(1.0 / 60.0, 4).unwrap();
+    }
+
+    let stats = task_system.stats();
+    assert!(stats.enqueued > 32, "{stats:?}");
+    assert_eq!(stats.enqueued, stats.started, "{stats:?}");
+    assert_eq!(stats.enqueued, stats.completed, "{stats:?}");
+    assert_eq!(stats.enqueued, stats.finished, "{stats:?}");
+    assert!(!stats.panicked, "{stats:?}");
+}
+
+#[test]
 fn world_def_clone_preserves_task_system_context() {
     let task_system = TaskSystem::blocking_threads();
     let def = WorldDef::builder()

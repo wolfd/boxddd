@@ -1,14 +1,14 @@
 use crate::core::callback_state::CallbackGuard;
 use crate::error::Error;
 use boxddd_sys::ffi;
-#[cfg(not(target_arch = "wasm32"))]
-use std::ffi::CStr;
 use std::os::raw::{c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
-use std::thread::{self, JoinHandle};
+use std::sync::{Condvar, Mutex, OnceLock, mpsc};
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
 
 /// Safe task-system adapter installed on a Box3D world definition.
 ///
@@ -24,11 +24,14 @@ pub struct TaskSystem {
 }
 
 impl TaskSystem {
-    /// Runs each Box3D task on a dedicated blocking operating-system thread.
+    /// Runs Box3D tasks on a lazily initialized, process-wide pool of blocking
+    /// operating-system threads.
     ///
-    /// This scheduler is intentionally conservative: it contains panics,
-    /// returns them as [`Error::CallbackPanicked`] from `World::try_step`, and
-    /// joins every task in the corresponding Box3D `finishTask` callback.
+    /// The pool is sized to [`std::thread::available_parallelism`] and reuses
+    /// its workers across tasks, steps, and worlds. This scheduler contains
+    /// panics, returns them as [`Error::CallbackPanicked`] from
+    /// `World::try_step`, and blocks each corresponding Box3D `finishTask`
+    /// callback until that task has completed.
     #[cfg(not(target_arch = "wasm32"))]
     #[inline]
     pub fn blocking_threads() -> Self {
@@ -209,7 +212,80 @@ unsafe impl Send for TaskInvocation {}
 
 #[cfg(not(target_arch = "wasm32"))]
 struct TaskHandle {
-    join: Option<JoinHandle<()>>,
+    completion: Arc<TaskCompletion>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct TaskCompletion {
+    done: Mutex<bool>,
+    ready: Condvar,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl TaskCompletion {
+    fn new() -> Self {
+        Self {
+            done: Mutex::new(false),
+            ready: Condvar::new(),
+        }
+    }
+
+    fn complete(&self) {
+        *self.done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.ready.notify_one();
+    }
+
+    fn wait(&self) {
+        let mut done = self.done.lock().unwrap_or_else(|e| e.into_inner());
+        while !*done {
+            done = self.ready.wait(done).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct PoolJob {
+    scheduler: Arc<TaskSystemInner>,
+    invocation: TaskInvocation,
+    completion: Arc<TaskCompletion>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct BlockingPool {
+    sender: mpsc::Sender<PoolJob>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn blocking_pool() -> &'static BlockingPool {
+    static POOL: OnceLock<BlockingPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<PoolJob>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let threads = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1)
+            .max(1);
+        for worker in 0..threads {
+            let receiver = receiver.clone();
+            thread::Builder::new()
+                .name(format!("boxddd-worker-{worker}"))
+                .spawn(move || {
+                    loop {
+                        let job = {
+                            let recv = receiver.lock().unwrap_or_else(|e| e.into_inner());
+                            recv.recv()
+                        };
+                        let Ok(job) = job else {
+                            break;
+                        };
+                        job.scheduler.run_task(job.invocation);
+                        job.completion.complete();
+                    }
+                })
+                .expect("failed to spawn BoxDDD task worker");
+        }
+        BlockingPool { sender }
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -217,7 +293,7 @@ pub(crate) unsafe extern "C" fn enqueue_task(
     task: ffi::b3TaskCallback,
     task_context: *mut c_void,
     user_context: *mut c_void,
-    task_name: *const c_char,
+    _task_name: *const c_char,
 ) -> *mut c_void {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let scheduler = unsafe { scheduler_from_context(user_context) };
@@ -233,17 +309,17 @@ pub(crate) unsafe extern "C" fn enqueue_task(
         }
 
         let scheduler_for_task = unsafe { clone_scheduler(scheduler as *const TaskSystemInner) };
-        let thread_name = task_thread_name(task_name);
-        match thread::Builder::new()
-            .name(thread_name)
-            .spawn(move || scheduler_for_task.run_task(invocation))
-        {
-            Ok(join) => Box::into_raw(Box::new(TaskHandle { join: Some(join) })).cast(),
-            Err(_) => {
-                scheduler.run_task(invocation);
-                std::ptr::null_mut()
-            }
+        let completion = Arc::new(TaskCompletion::new());
+        let job = PoolJob {
+            scheduler: scheduler_for_task,
+            invocation,
+            completion: completion.clone(),
+        };
+        if blocking_pool().sender.send(job).is_err() {
+            scheduler.run_task(invocation);
+            return std::ptr::null_mut();
         }
+        Box::into_raw(Box::new(TaskHandle { completion })).cast()
     }));
 
     match result {
@@ -291,12 +367,8 @@ pub(crate) unsafe extern "C" fn finish_task(user_task: *mut c_void, user_context
         }
         let scheduler = unsafe { scheduler_from_context(user_context) };
 
-        let mut handle = unsafe { Box::from_raw(user_task.cast::<TaskHandle>()) };
-        if let Some(join) = handle.join.take() {
-            if join.join().is_err() {
-                scheduler.mark_panicked();
-            }
-        }
+        let handle = unsafe { Box::from_raw(user_task.cast::<TaskHandle>()) };
+        handle.completion.wait();
         scheduler.finished.fetch_add(1, Ordering::Relaxed);
         if scheduler.fault_mode == FaultMode::PanicOnFinish {
             panic!("injected Box3D finish panic");
@@ -353,19 +425,4 @@ unsafe fn clone_scheduler(ptr: *const TaskSystemInner) -> Arc<TaskSystemInner> {
         Arc::increment_strong_count(ptr);
         Arc::from_raw(ptr)
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn task_thread_name(task_name: *const c_char) -> String {
-    let suffix: String = if task_name.is_null() {
-        "unnamed".into()
-    } else {
-        unsafe { CStr::from_ptr(task_name) }
-            .to_string_lossy()
-            .chars()
-            .map(|ch| if ch == '\0' { '_' } else { ch })
-            .take(48)
-            .collect()
-    };
-    format!("boxddd-task-{suffix}")
 }
