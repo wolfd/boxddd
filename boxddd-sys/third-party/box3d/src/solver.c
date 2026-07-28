@@ -1043,7 +1043,7 @@ static void b3ExecuteBlock( b3SolverStage* stage, b3StepContext* context, b3Solv
 			{
 				b3ApplyRestitution_Convex( block, context );
 			}
-			else if ( blockType == b3_graphContactBlock )
+			else if ( blockType == b3_graphContactBlock || blockType == b3_overflowBlock )
 			{
 				b3ApplyRestitution_Mesh( block, context );
 			}
@@ -1246,7 +1246,11 @@ static void b3SolverTask( void* taskContext )
 
 			// Warm start constraints
 			b3WarmStartJoints_Overflow( context );
-			b3WarmStartContacts_Overflow( context );
+
+			syncBits = ( graphSyncIndex << 16 ) | iterationStageIndex;
+			B3_ASSERT( stages[iterationStageIndex].type == b3_stageWarmStart );
+			b3ExecuteMainStage( stages + iterationStageIndex, context, syncBits );
+			iterationStageIndex += 1;
 
 			for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 			{
@@ -1265,7 +1269,11 @@ static void b3SolverTask( void* taskContext )
 			{
 				// Overflow constraints have lower priority. Typically these are dynamic-vs-dynamic.
 				b3SolveJoints_Overflow( context, useBias );
-				b3SolveContacts_Overflow( context, useBias );
+
+				syncBits = ( graphSyncIndex << 16 ) | iterationStageIndex;
+				B3_ASSERT( stages[iterationStageIndex].type == b3_stageSolve );
+				b3ExecuteMainStage( stages + iterationStageIndex, context, syncBits );
+				iterationStageIndex += 1;
 
 				for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 				{
@@ -1293,7 +1301,11 @@ static void b3SolverTask( void* taskContext )
 			for ( int j = 0; j < RELAX_ITERATIONS; ++j )
 			{
 				b3SolveJoints_Overflow( context, useBias );
-				b3SolveContacts_Overflow( context, useBias );
+
+				syncBits = ( graphSyncIndex << 16 ) | iterationStageIndex;
+				B3_ASSERT( stages[iterationStageIndex].type == b3_stageRelax );
+				b3ExecuteMainStage( stages + iterationStageIndex, context, syncBits );
+				iterationStageIndex += 1;
 
 				for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 				{
@@ -1310,13 +1322,17 @@ static void b3SolverTask( void* taskContext )
 
 		// Advance the stage according to the sub-stepping tasks just completed
 		// integrate velocities / warm start / solve / integrate positions / relax
-		stageIndex += 1 + activeColorCount + ITERATIONS * activeColorCount + 1 + RELAX_ITERATIONS * activeColorCount;
+		stageIndex +=
+			1 + 1 + activeColorCount + ITERATIONS * ( 1 + activeColorCount ) + 1 + RELAX_ITERATIONS * ( 1 + activeColorCount );
 
 		// Restitution
 		{
-			b3ApplyRestitution_Overflow( context );
-
 			int iterStageIndex = stageIndex;
+			syncBits = ( graphSyncIndex << 16 ) | iterStageIndex;
+			B3_ASSERT( stages[iterStageIndex].type == b3_stageRestitution );
+			b3ExecuteMainStage( stages + iterStageIndex, context, syncBits );
+			iterStageIndex += 1;
+
 			for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 			{
 				syncBits = ( graphSyncIndex << 16 ) | iterStageIndex;
@@ -1325,7 +1341,7 @@ static void b3SolverTask( void* taskContext )
 				iterStageIndex += 1;
 			}
 			// graphSyncIndex += 1;
-			stageIndex += activeColorCount;
+			stageIndex += 1 + activeColorCount;
 		}
 
 		profile->applyRestitution += b3GetMillisecondsAndReset( &ticks );
@@ -1671,6 +1687,75 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		overflowSpans[1].count = 0;
 		overflowSpans[1].contacts = NULL;
 
+		// Overflow constraints cannot run concurrently in their persistent graph
+		// color, but contacts in different islands cannot share a dynamic body.
+		// Build a stable per-island view so each island keeps the original
+		// Gauss-Seidel order while independent islands become solver blocks.
+		int islandCapacity = b3GetIdCapacity( &world->islandIdPool );
+		int islandArraySize = b3MaxInt( islandCapacity, 1 );
+		int overflowArraySize = b3MaxInt( overflowCount, 1 );
+		int* overflowIslandCounts =
+			(int*)b3StackAlloc( &world->stack, islandArraySize * sizeof( int ), "overflow island counts" );
+		int* overflowIslandCursors =
+			(int*)b3StackAlloc( &world->stack, islandArraySize * sizeof( int ), "overflow island cursors" );
+		memset( overflowIslandCounts, 0, islandArraySize * sizeof( int ) );
+
+		for ( int i = 0; i < overflowCount; ++i )
+		{
+			int contactId = overflow->contacts.data[i].contactId;
+			b3Contact* contact = b3Array_Get( world->contacts, contactId );
+			B3_ASSERT( 0 <= contact->islandId && contact->islandId < islandCapacity );
+			overflowIslandCounts[contact->islandId] += 1;
+		}
+
+		int overflowIslandCount = 0;
+		int overflowOffset = 0;
+		for ( int islandId = 0; islandId < islandCapacity; ++islandId )
+		{
+			int count = overflowIslandCounts[islandId];
+			overflowIslandCursors[islandId] = overflowOffset;
+			overflowOffset += count;
+			overflowIslandCount += count > 0 ? 1 : 0;
+		}
+		B3_ASSERT( overflowOffset == overflowCount );
+
+		b3ContactSpec* overflowIslandContacts = (b3ContactSpec*)b3StackAlloc(
+			&world->stack, overflowArraySize * sizeof( b3ContactSpec ), "overflow island contacts" );
+		for ( int i = 0; i < overflowCount; ++i )
+		{
+			b3ContactSpec spec = overflow->contacts.data[i];
+			b3Contact* contact = b3Array_Get( world->contacts, spec.contactId );
+			int target = overflowIslandCursors[contact->islandId];
+			overflowIslandContacts[target] = spec;
+			overflowIslandCursors[contact->islandId] += 1;
+		}
+		overflowSpans[0].contacts = overflowIslandContacts;
+
+		int overflowBlockArraySize = b3MaxInt( overflowIslandCount, 1 );
+		b3SyncBlock* overflowIslandBlocks = (b3SyncBlock*)b3StackAlloc(
+			&world->stack, overflowBlockArraySize * sizeof( b3SyncBlock ), "overflow island blocks" );
+		int overflowBlockIndex = 0;
+		for ( int islandId = 0; islandId < islandCapacity; ++islandId )
+		{
+			int count = overflowIslandCounts[islandId];
+			if ( count == 0 )
+			{
+				continue;
+			}
+
+			int start = overflowIslandCursors[islandId] - count;
+			B3_ASSERT( count <= UINT16_MAX );
+			overflowIslandBlocks[overflowBlockIndex].block = ( b3SolverBlock ){
+				.startIndex = start,
+				.count = (uint16_t)count,
+				.blockType = b3_overflowBlock,
+				.colorIndex = B3_OVERFLOW_INDEX,
+			};
+			b3AtomicStoreInt( &overflowIslandBlocks[overflowBlockIndex].syncIndex, 0 );
+			overflowBlockIndex += 1;
+		}
+		B3_ASSERT( overflowBlockIndex == overflowIslandCount );
+
 		int stageCount = 0;
 
 		// b3_stagePrepareJoints
@@ -1682,15 +1767,15 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		// b3_stageIntegrateVelocities
 		stageCount += 1;
 		// b3_stageWarmStart
-		stageCount += activeColorCount;
+		stageCount += 1 + activeColorCount;
 		// b3_stageSolve
-		stageCount += ITERATIONS * activeColorCount;
+		stageCount += ITERATIONS * ( 1 + activeColorCount );
 		// b3_stageIntegratePositions
 		stageCount += 1;
 		// b3_stageRelax
-		stageCount += RELAX_ITERATIONS * activeColorCount;
+		stageCount += RELAX_ITERATIONS * ( 1 + activeColorCount );
 		// b3_stageRestitution
-		stageCount += activeColorCount;
+		stageCount += 1 + activeColorCount;
 		// b3_stageStoreWideImpulses
 		stageCount += 1;
 		// b3_stageStoreImpulses
@@ -1767,14 +1852,26 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		stage = b3InitStage( stage, b3_stagePrepareWideContacts, convexBlocks, convexPrepareDim.count, UINT8_MAX );
 		stage = b3InitStage( stage, b3_stagePrepareContacts, meshBlocks, meshPrepareDim.count, UINT8_MAX );
 		stage = b3InitStage( stage, b3_stageIntegrateVelocities, bodyBlocks, bodyDim.count, UINT8_MAX );
+		stage =
+			b3InitStage( stage, b3_stageWarmStart, overflowIslandBlocks, overflowIslandCount, B3_OVERFLOW_INDEX );
 		stage = b3InitColorStages( stage, b3_stageWarmStart, 1, activeColorCount, graphColorBlocks, graphBlockCounts,
 								   activeColorIndices );
-		stage = b3InitColorStages( stage, b3_stageSolve, ITERATIONS, activeColorCount, graphColorBlocks, graphBlockCounts,
-								   activeColorIndices );
+		for ( int i = 0; i < ITERATIONS; ++i )
+		{
+			stage = b3InitStage( stage, b3_stageSolve, overflowIslandBlocks, overflowIslandCount, B3_OVERFLOW_INDEX );
+			stage = b3InitColorStages( stage, b3_stageSolve, 1, activeColorCount, graphColorBlocks, graphBlockCounts,
+									   activeColorIndices );
+		}
 		stage = b3InitStage( stage, b3_stageIntegratePositions, bodyBlocks, bodyDim.count, UINT8_MAX );
-		stage = b3InitColorStages( stage, b3_stageRelax, RELAX_ITERATIONS, activeColorCount, graphColorBlocks, graphBlockCounts,
-								   activeColorIndices );
+		for ( int i = 0; i < RELAX_ITERATIONS; ++i )
+		{
+			stage = b3InitStage( stage, b3_stageRelax, overflowIslandBlocks, overflowIslandCount, B3_OVERFLOW_INDEX );
+			stage = b3InitColorStages( stage, b3_stageRelax, 1, activeColorCount, graphColorBlocks, graphBlockCounts,
+									   activeColorIndices );
+		}
 		// Note: joint blocks mixed in, could have joint limit restitution
+		stage =
+			b3InitStage( stage, b3_stageRestitution, overflowIslandBlocks, overflowIslandCount, B3_OVERFLOW_INDEX );
 		stage = b3InitColorStages( stage, b3_stageRestitution, 1, activeColorCount, graphColorBlocks, graphBlockCounts,
 								   activeColorIndices );
 		stage = b3InitStage( stage, b3_stageStoreWideImpulses, convexBlocks, convexPrepareDim.count, UINT8_MAX );
@@ -1890,6 +1987,10 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		b3StackFree( &world->stack, convexBlocks );
 		b3StackFree( &world->stack, bodyBlocks );
 		b3StackFree( &world->stack, stages );
+		b3StackFree( &world->stack, overflowIslandBlocks );
+		b3StackFree( &world->stack, overflowIslandContacts );
+		b3StackFree( &world->stack, overflowIslandCursors );
+		b3StackFree( &world->stack, overflowIslandCounts );
 		b3StackFree( &world->stack, overflow->manifoldConstraints );
 		b3StackFree( &world->stack, overflow->contactConstraints );
 		b3StackFree( &world->stack, manifoldConstraints );
