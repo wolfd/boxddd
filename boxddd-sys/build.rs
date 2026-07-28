@@ -331,6 +331,9 @@ fn build_box3d_from_source(config: &BuildConfig) {
     } else {
         build.flag_if_supported("-std=c17");
         build.flag_if_supported("-ffp-contract=off");
+        if !config.is_debug() {
+            build.flag_if_supported("-fno-math-errno");
+        }
         build.debug(config.is_debug());
         build.opt_level(if config.is_debug() { 0 } else { 2 });
         if config.target_os == "linux" {
