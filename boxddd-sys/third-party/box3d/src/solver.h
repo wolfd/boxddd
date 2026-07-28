@@ -134,6 +134,7 @@ typedef struct b3SolverStage
 	b3SolverStageType type;
 	int blockCount;
 	uint8_t colorIndex;
+	b3AtomicInt nextBlock;
 	b3AtomicInt completionCount;
 } b3SolverStage;
 

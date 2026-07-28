@@ -940,6 +940,7 @@ static inline b3SolverStage* b3InitStage( b3SolverStage* stage, b3SolverStageTyp
 	stage->blocks = blocks;
 	stage->blockCount = blockCount;
 	stage->colorIndex = colorIndex;
+	b3AtomicStoreInt( &stage->nextBlock, 0 );
 	b3AtomicStoreInt( &stage->completionCount, 0 );
 	return stage + 1;
 }
@@ -1059,53 +1060,37 @@ static void b3ExecuteBlock( b3SolverStage* stage, b3StepContext* context, b3Solv
 	}
 }
 
-// This staggers the worker start indices so they avoid touching the same solver blocks
-static inline int GetWorkerStartIndex( int workerIndex, int blockCount, int workerCount )
-{
-	if ( blockCount <= workerCount )
-	{
-		return workerIndex < blockCount ? workerIndex : B3_NULL_INDEX;
-	}
-
-	int blocksPerWorker = blockCount / workerCount;
-	int remainder = blockCount - blocksPerWorker * workerCount;
-	return blocksPerWorker * workerIndex + b3MinInt( remainder, workerIndex );
-}
-
-// Execute a stage, which is an array of solver blocks, each controlled with an atomic sync index.
-// Each worker starts at its home index and sweeps the ring, CAS-claiming any unclaimed blocks.
-static void b3ExecuteStage( b3SolverStage* stage, b3StepContext* context, int previousSyncIndex, int syncIndex, int workerIndex )
+// Execute a stage using one shared claim cursor. A worker claims each block
+// exactly once instead of every worker scanning the entire block array and
+// attempting a CAS on blocks that another worker has already claimed.
+static void b3ExecuteStage( b3SolverStage* stage, b3StepContext* context, int syncIndex, int workerIndex )
 {
 	int completedCount = 0;
 	b3SyncBlock* blocks = stage->blocks;
 	int blockCount = stage->blockCount;
+	int generation = syncIndex * 65536;
 
-	int startIndex = GetWorkerStartIndex( workerIndex, blockCount, context->workerCount );
-	if ( startIndex == B3_NULL_INDEX )
+	for ( ;; )
 	{
-		return;
-	}
-
-	B3_ASSERT( 0 <= startIndex && startIndex < blockCount );
-
-	int blockIndex = startIndex;
-	for ( int i = 0; i < blockCount; ++i )
-	{
-		if ( b3AtomicCompareExchangeInt( &blocks[blockIndex].syncIndex, previousSyncIndex, syncIndex ) )
+		int claim = b3AtomicLoadInt( &stage->nextBlock );
+		if ( claim / 65536 != syncIndex )
 		{
-			B3_ASSERT( completedCount < blockCount );
-
-			// Pass the descriptor by value -- the wrapping b3SyncBlock holds the atomic
-			// syncIndex but we only copy .block, so the struct copy never aliases the CAS target.
-			b3ExecuteBlock( stage, context, blocks[blockIndex].block, workerIndex );
-			completedCount += 1;
+			break;
 		}
 
-		blockIndex += 1;
+		int blockIndex = claim - generation;
 		if ( blockIndex >= blockCount )
 		{
-			blockIndex = 0;
+			break;
 		}
+
+		if ( b3AtomicCompareExchangeInt( &stage->nextBlock, claim, claim + 1 ) == false )
+		{
+			continue;
+		}
+
+		b3ExecuteBlock( stage, context, blocks[blockIndex].block, workerIndex );
+		completedCount += 1;
 	}
 
 	(void)b3AtomicFetchAddInt( &stage->completionCount, completedCount );
@@ -1128,13 +1113,12 @@ static void b3ExecuteMainStage( b3SolverStage* stage, b3StepContext* context, ui
 	}
 	else
 	{
+		int syncIndex = ( syncBits >> 16 ) & 0xFFFF;
+		B3_ASSERT( syncIndex > 0 && syncIndex < 32768 );
+		b3AtomicStoreInt( &stage->nextBlock, syncIndex * 65536 );
 		b3AtomicStoreU32( &context->atomicSyncBits, syncBits );
 
-		int syncIndex = ( syncBits >> 16 ) & 0xFFFF;
-		B3_ASSERT( syncIndex > 0 );
-		int previousSyncIndex = syncIndex - 1;
-
-		b3ExecuteStage( stage, context, previousSyncIndex, syncIndex, workerIndex );
+		b3ExecuteStage( stage, context, syncIndex, workerIndex );
 
 		// Spin waiting for thieves to finish
 		while ( b3AtomicLoadInt( &stage->completionCount ) != blockCount )
@@ -1396,12 +1380,10 @@ static void b3SolverTask( void* taskContext )
 		B3_ASSERT( stageIndex < context->stageCount );
 
 		int syncIndex = ( syncBits >> 16 ) & 0xFFFF;
-		B3_ASSERT( syncIndex > 0 );
-
-		int previousSyncIndex = syncIndex - 1;
+		B3_ASSERT( syncIndex > 0 && syncIndex < 32768 );
 
 		b3SolverStage* stage = stages + stageIndex;
-		b3ExecuteStage( stage, context, previousSyncIndex, syncIndex, workerIndex );
+		b3ExecuteStage( stage, context, syncIndex, workerIndex );
 
 		lastSyncBits = syncBits;
 	}
