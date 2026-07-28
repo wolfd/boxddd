@@ -154,8 +154,9 @@ struct ContactHeader {
     manifold_count: u32,
 }
 
-/// Reusable storage for body-contact queries
-/// ([`World::try_body_contacts_buffered`]).
+/// Reusable storage for body- and world-contact queries
+/// ([`World::try_body_contacts_buffered`] and
+/// [`World::try_world_contacts_buffered`]).
 ///
 /// Refills without allocating once its capacity has warmed up: every
 /// contact's manifolds live in ONE flat vec shared across the buffer,
@@ -163,12 +164,21 @@ struct ContactHeader {
 /// query — a real cost when polling contacts for many bodies every step.
 ///
 /// [`World::try_body_contacts_buffered`]: crate::World::try_body_contacts_buffered
+/// [`World::try_world_contacts_buffered`]: crate::World::try_world_contacts_buffered
 #[derive(Default)]
 pub struct ContactBuffer {
     pub(crate) raw: Vec<ffi::b3ContactData>,
     headers: Vec<ContactHeader>,
     manifolds: Vec<Manifold>,
 }
+
+// SAFETY: `raw` is private FFI staging. Its native manifold pointers are
+// copied into owned `headers`/`manifolds` by `convert_raw` while the world
+// lock is still held, and no public `&self` method reads or dereferences
+// `raw`. Moving, sharing, or dropping its inert pointer values is safe;
+// refilling requires `&mut self` and is serialized by the Box3D world lock.
+unsafe impl Send for ContactBuffer {}
+unsafe impl Sync for ContactBuffer {}
 
 impl ContactBuffer {
     /// Creates an empty buffer.
@@ -192,6 +202,19 @@ impl ContactBuffer {
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = ContactView<'_>> {
         self.headers.iter().map(|h| ContactView {
+            contact_id: h.contact_id,
+            shape_id_a: h.shape_id_a,
+            shape_id_b: h.shape_id_b,
+            manifolds: &self.manifolds
+                [h.manifold_start as usize..(h.manifold_start + h.manifold_count) as usize],
+        })
+    }
+
+    /// Returns one buffered contact by index.
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<ContactView<'_>> {
+        let h = self.headers.get(index)?;
+        Some(ContactView {
             contact_id: h.contact_id,
             shape_id_a: h.shape_id_a,
             shape_id_b: h.shape_id_b,

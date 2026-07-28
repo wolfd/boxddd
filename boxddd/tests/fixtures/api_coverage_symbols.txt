@@ -26,6 +26,8 @@ b3World_GetBounds|safe|world|box3d.h|covered by current safe wrapper implementat
 b3World_GetBodyEvents|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetSensorEvents|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetContactEvents|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetContactCapacity|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetContactData|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetJointEvents|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_OverlapAABB|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_OverlapShape|safe|world|box3d.h|covered by current safe wrapper implementation

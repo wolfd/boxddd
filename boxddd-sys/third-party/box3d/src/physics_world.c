@@ -1801,6 +1801,66 @@ b3ContactEvents b3World_GetContactEvents( b3WorldId worldId )
 	return events;
 }
 
+int b3World_GetContactCapacity( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	return b3GetIdCount( &world->contactIdPool );
+}
+
+int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int capacity )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	int index = 0;
+	for ( int bodyId = 0; bodyId < world->bodies.count && index < capacity; ++bodyId )
+	{
+		b3Body* body = b3Array_Get( world->bodies, bodyId );
+		if ( body->id == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		int contactKey = body->headContactKey;
+		while ( contactKey != B3_NULL_INDEX && index < capacity )
+		{
+			int contactId = contactKey >> 1;
+			int edgeIndex = contactKey & 1;
+			b3Contact* contact = b3Array_Get( world->contacts, contactId );
+
+			// Each pair is linked from both bodies. The lower native body id
+			// owns the copy, avoiding a scan over the contact-id high-water
+			// mark after heavy contact churn.
+			int otherBodyId = contact->edges[edgeIndex ^ 1].bodyId;
+			if ( bodyId < otherBodyId && ( contact->flags & b3_contactTouchingFlag ) != 0 )
+			{
+				b3Shape* shapeA = b3Array_Get( world->shapes, contact->shapeIdA );
+				b3Shape* shapeB = b3Array_Get( world->shapes, contact->shapeIdB );
+				contactData[index].contactId =
+					(b3ContactId){ contact->contactId + 1, world->worldId, 0, contact->generation };
+				contactData[index].shapeIdA = (b3ShapeId){ shapeA->id + 1, world->worldId, shapeA->generation };
+				contactData[index].shapeIdB = (b3ShapeId){ shapeB->id + 1, world->worldId, shapeB->generation };
+				contactData[index].manifolds = contact->manifolds;
+				contactData[index].manifoldCount = contact->manifoldCount;
+				index += 1;
+			}
+
+			contactKey = contact->edges[edgeIndex].nextKey;
+		}
+	}
+
+	B3_ASSERT( index <= capacity );
+	return index;
+}
+
 b3JointEvents b3World_GetJointEvents( b3WorldId worldId )
 {
 	b3World* world = b3GetUnlockedWorldFromId( worldId );

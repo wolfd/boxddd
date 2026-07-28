@@ -68,6 +68,12 @@ B3_API b3SensorEvents b3World_GetSensorEvents( b3WorldId worldId );
 /// Get contact events for this current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3ContactEvents b3World_GetContactEvents( b3WorldId worldId );
 
+/// Get a conservative capacity for all current touching contacts in the world.
+B3_API int b3World_GetContactCapacity( b3WorldId worldId );
+
+/// Copy all current touching contacts in the world, visiting each pair once.
+B3_API int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int capacity );
+
 /// Get the joint events for the current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3JointEvents b3World_GetJointEvents( b3WorldId worldId );
 

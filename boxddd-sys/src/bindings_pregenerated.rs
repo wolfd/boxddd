@@ -3603,6 +3603,18 @@ unsafe extern "C" {
     pub fn b3World_GetContactEvents(worldId: b3WorldId) -> b3ContactEvents;
 }
 unsafe extern "C" {
+    #[doc = " Get a conservative capacity for all current touching contacts in the world."]
+    pub fn b3World_GetContactCapacity(worldId: b3WorldId) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    #[doc = " Copy all current touching contacts in the world, visiting each pair once."]
+    pub fn b3World_GetContactData(
+        worldId: b3WorldId,
+        contactData: *mut b3ContactData,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     #[doc = " Get the joint events for the current time step. The event data is transient. Do not store a reference to this data."]
     pub fn b3World_GetJointEvents(worldId: b3WorldId) -> b3JointEvents;
 }

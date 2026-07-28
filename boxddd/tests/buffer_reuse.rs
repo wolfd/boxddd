@@ -1,6 +1,47 @@
 use boxddd::{
-    Aabb, BodyDef, BodyType, BoxHull, ContactBuffer, QueryFilter, ShapeDef, Sphere, World, WorldDef,
+    Aabb, BodyDef, BodyType, BoxHull, ContactBuffer, ContactId, Manifold, QueryFilter, ShapeDef,
+    ShapeId, Sphere, World, WorldDef,
 };
+use std::collections::{HashMap, HashSet};
+
+type ContactSnapshot = (ShapeId, ShapeId, Vec<Manifold>);
+
+fn merged_contact_snapshots(buffers: &[&ContactBuffer]) -> HashMap<ContactId, ContactSnapshot> {
+    let mut merged = HashMap::new();
+    for contact in buffers.iter().flat_map(|buffer| buffer.iter()) {
+        let snapshot = (
+            contact.shape_id_a,
+            contact.shape_id_b,
+            contact.manifolds.to_vec(),
+        );
+        if let Some(previous) = merged.insert(contact.contact_id, snapshot.clone()) {
+            assert_eq!(
+                previous, snapshot,
+                "both body queries must copy the same native contact"
+            );
+        }
+    }
+    merged
+}
+
+fn assert_world_contacts(
+    world: &World,
+    all: &mut ContactBuffer,
+    expected: &HashMap<ContactId, ContactSnapshot>,
+) {
+    world.try_world_contacts_buffered(all).unwrap();
+    assert_eq!(all.len(), expected.len(), "each native pair appears once");
+    let mut seen = HashSet::new();
+    for contact in all.iter() {
+        assert!(seen.insert(contact.contact_id), "duplicate world contact");
+        let snapshot = expected
+            .get(&contact.contact_id)
+            .expect("world contact must appear in a body query");
+        assert_eq!(contact.shape_id_a, snapshot.0);
+        assert_eq!(contact.shape_id_b, snapshot.1);
+        assert_eq!(contact.manifolds, snapshot.2.as_slice());
+    }
+}
 
 /// A dynamic box resting on a static ground slab after settling — the
 /// minimal world with one live contact.
@@ -44,6 +85,62 @@ fn buffered_contacts_match_the_allocating_query_and_reuse_storage() {
     // Refill: same contents, no fresh growth beyond the warmed capacity.
     world.try_body_contacts_buffered(cube, &mut buf).unwrap();
     assert_eq!(buf.len(), allocating.len());
+}
+
+#[test]
+fn world_contact_buffer_visits_each_touching_pair_once() {
+    let mut world = World::new(WorldDef::default()).unwrap();
+    let ground = world.create_body(BodyDef::builder().body_type(BodyType::Static).build());
+    world.create_hull_shape(ground, &ShapeDef::default(), &BoxHull::new(10.0, 0.5, 10.0));
+    let lower = world.create_body(
+        BodyDef::builder()
+            .body_type(BodyType::Dynamic)
+            .position([0.0, 1.2, 0.0])
+            .build(),
+    );
+    world.create_hull_shape(lower, &ShapeDef::default(), &BoxHull::new(0.5, 0.5, 0.5));
+    let upper = world.create_body(
+        BodyDef::builder()
+            .body_type(BodyType::Dynamic)
+            .position([0.0, 2.2, 0.0])
+            .build(),
+    );
+    world.create_hull_shape(upper, &ShapeDef::default(), &BoxHull::new(0.5, 0.5, 0.5));
+    for _ in 0..120 {
+        world.step(1.0 / 60.0, 4);
+    }
+
+    let mut lower_contacts = ContactBuffer::new();
+    world
+        .try_body_contacts_buffered(lower, &mut lower_contacts)
+        .unwrap();
+    let mut upper_contacts = ContactBuffer::new();
+    world
+        .try_body_contacts_buffered(upper, &mut upper_contacts)
+        .unwrap();
+    let body_count = lower_contacts.len() + upper_contacts.len();
+    let expected = merged_contact_snapshots(&[&lower_contacts, &upper_contacts]);
+    assert!(
+        body_count > expected.len(),
+        "the body queries must duplicate the shared dynamic pair"
+    );
+
+    let mut all = ContactBuffer::new();
+    assert_world_contacts(&world, &mut all, &expected);
+
+    // Destroying one participant removes the shared pair and leaves a hole
+    // in the native contact-id slots. The world query must shrink cleanly
+    // without revisiting the stale slot.
+    world.destroy_body(upper);
+    world
+        .try_body_contacts_buffered(lower, &mut lower_contacts)
+        .unwrap();
+    let after_destroy = merged_contact_snapshots(&[&lower_contacts]);
+    assert!(after_destroy.len() < expected.len());
+    assert_world_contacts(&world, &mut all, &after_destroy);
+
+    // Refill once more to cover warm-buffer reuse after the shrink.
+    assert_world_contacts(&world, &mut all, &after_destroy);
 }
 
 /// Regression: refilling a WARM buffer whose previous fill was smaller must

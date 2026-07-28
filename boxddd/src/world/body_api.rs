@@ -944,6 +944,22 @@ impl World {
         }
         Ok(())
     }
+
+    /// Tries to refill `buf` with every current touching contact in the
+    /// world, visiting each native pair once.
+    pub fn try_world_contacts_buffered(&self, buf: &mut ContactBuffer) -> Result<()> {
+        callback_state::check_not_in_callback()?;
+        let _guard = box3d_lock::lock();
+        self.check_world_valid_locked()?;
+        let capacity = unsafe { ffi::b3World_GetContactCapacity(self.raw()) }.max(0) as usize;
+        unsafe {
+            crate::core::ffi_vec::fill_from_ffi(&mut buf.raw, capacity, |ptr, cap| {
+                ffi::b3World_GetContactData(self.raw(), ptr, cap)
+            });
+            buf.convert_raw();
+        }
+        Ok(())
+    }
 }
 
 #[inline]
