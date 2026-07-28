@@ -1223,7 +1223,6 @@ static void b3SolverTask( void* taskContext )
 
 		// Single-threaded overflow work. These constraints don't fit in the graph coloring.
 		b3PrepareJoints_Overflow( context );
-		b3PrepareContacts_Overflow( context );
 
 		profile->prepareConstraints += b3GetMillisecondsAndReset( &ticks );
 
@@ -1331,8 +1330,6 @@ static void b3SolverTask( void* taskContext )
 		profile->applyRestitution += b3GetMillisecondsAndReset( &ticks );
 
 		// Store impulses
-		b3StoreImpulses_Overflow( context );
-
 		syncBits = ( convexSyncIndex << 16 ) | stageIndex;
 		B3_ASSERT( stages[stageIndex].type == b3_stageStoreWideImpulses );
 		b3ExecuteMainStage( stages + stageIndex, context, syncBits );
@@ -1563,6 +1560,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 
 		b3GraphColor* overflow = colors + B3_OVERFLOW_INDEX;
 		int overflowCount = overflow->contacts.count;
+		b3BlockDim overflowPrepareDim = b3ComputeBlockCount( overflowCount, minContactsPerBlock, maxBlockCount );
+		int meshPrepareBlockCount = meshPrepareDim.count + overflowPrepareDim.count;
 		int overflowManifoldCount = 0;
 		for ( int i = 0; i < overflowCount; ++i )
 		{
@@ -1702,7 +1701,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		b3SyncBlock* convexBlocks =
 			(b3SyncBlock*)b3StackAlloc( &world->stack, convexPrepareDim.count * sizeof( b3SyncBlock ), "convex blocks" );
 		b3SyncBlock* meshBlocks =
-			(b3SyncBlock*)b3StackAlloc( &world->stack, meshPrepareDim.count * sizeof( b3SyncBlock ), "mesh blocks" );
+			(b3SyncBlock*)b3StackAlloc( &world->stack, meshPrepareBlockCount * sizeof( b3SyncBlock ), "mesh blocks" );
 		b3SyncBlock* jointBlocks =
 			(b3SyncBlock*)b3StackAlloc( &world->stack, jointPrepareDim.count * sizeof( b3SyncBlock ), "joint blocks" );
 		b3SyncBlock* graphBlocks =
@@ -1736,6 +1735,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		// The task walks spans to decode flat slot indices back to per-color arrays.
 		b3InitBlocks( convexBlocks, convexPrepareDim, wideContactCount, b3_wideContactBlock, UINT8_MAX );
 		b3InitBlocks( meshBlocks, meshPrepareDim, contactCount, b3_contactBlock, UINT8_MAX );
+		b3InitBlocks( meshBlocks + meshPrepareDim.count, overflowPrepareDim, overflowCount, b3_overflowBlock,
+					  B3_OVERFLOW_INDEX );
 		b3InitBlocks( jointBlocks, jointPrepareDim, jointCount, b3_jointBlock, UINT8_MAX );
 
 		// Prepare graph work blocks. Each color gets joint blocks followed by contact blocks.
@@ -1765,7 +1766,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		b3SolverStage* stage = stages;
 		stage = b3InitStage( stage, b3_stagePrepareJoints, jointBlocks, jointPrepareDim.count, UINT8_MAX );
 		stage = b3InitStage( stage, b3_stagePrepareWideContacts, convexBlocks, convexPrepareDim.count, UINT8_MAX );
-		stage = b3InitStage( stage, b3_stagePrepareContacts, meshBlocks, meshPrepareDim.count, UINT8_MAX );
+		stage = b3InitStage( stage, b3_stagePrepareContacts, meshBlocks, meshPrepareBlockCount, UINT8_MAX );
 		stage = b3InitStage( stage, b3_stageIntegrateVelocities, bodyBlocks, bodyDim.count, UINT8_MAX );
 		stage = b3InitColorStages( stage, b3_stageWarmStart, 1, activeColorCount, graphColorBlocks, graphBlockCounts,
 								   activeColorIndices );
@@ -1778,7 +1779,7 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		stage = b3InitColorStages( stage, b3_stageRestitution, 1, activeColorCount, graphColorBlocks, graphBlockCounts,
 								   activeColorIndices );
 		stage = b3InitStage( stage, b3_stageStoreWideImpulses, convexBlocks, convexPrepareDim.count, UINT8_MAX );
-		stage = b3InitStage( stage, b3_stageStoreImpulses, meshBlocks, meshPrepareDim.count, UINT8_MAX );
+		stage = b3InitStage( stage, b3_stageStoreImpulses, meshBlocks, meshPrepareBlockCount, UINT8_MAX );
 
 		B3_ASSERT( (int)( stage - stages ) == stageCount );
 
