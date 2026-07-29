@@ -37,6 +37,11 @@ pub enum Error {
     #[error("failed to create Box3D dynamic tree")]
     CreateDynamicTreeFailed,
 
+    /// Box3D could not serialize the world, or the image was rejected as
+    /// corrupt or incompatible on load.
+    #[error("Box3D world save/load state failed")]
+    SaveStateFailed,
+
     /// Box3D did not return a valid replay player handle.
     #[error("failed to create Box3D replay player")]
     CreateRecPlayerFailed,

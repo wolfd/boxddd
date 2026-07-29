@@ -407,4 +407,48 @@ impl World {
         unsafe { ffi::b3World_RebuildStaticTree(self.raw) };
         Ok(())
     }
+
+    /// Serialize the whole world into a self-contained image.
+    ///
+    /// Captures what a body-transform dump cannot: contact manifolds with their
+    /// warm-start impulses, sleep timers, island and constraint-graph
+    /// structure, the broadphase, and the id pools — so a restored world steps
+    /// on to produce bit-identical results rather than merely starting from the
+    /// same poses. The interned shape geometry travels with it.
+    ///
+    /// Pure `&self`: serialization does not mutate the world.
+    pub fn save_state(&self) -> Result<Vec<u8>> {
+        callback_state::check_not_in_callback()?;
+        let _guard = box3d_lock::lock();
+        let mut size: std::os::raw::c_int = 0;
+        // SAFETY: the world id is valid for `self`, and `size` is a live local.
+        let ptr = unsafe { ffi::b3World_SaveState(self.raw(), &mut size) };
+        if ptr.is_null() || size <= 0 {
+            return Err(Error::SaveStateFailed);
+        }
+        // SAFETY: box3d returned `size` bytes at `ptr`; copy them out and hand
+        // the allocation straight back rather than adopting a foreign one.
+        let out = unsafe { std::slice::from_raw_parts(ptr, size as usize) }.to_vec();
+        unsafe { ffi::b3FreeSaveState(ptr, size) };
+        Ok(out)
+    }
+
+    /// Overwrite this world with a [`Self::save_state`] image.
+    ///
+    /// The target must have been created with the same [`WorldDef`]; its
+    /// current contents are discarded. Handles from before the load stay valid
+    /// because the image restores the id pools too — but a handle to a body
+    /// that did not exist when the image was taken will not.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<()> {
+        callback_state::check_not_in_callback()?;
+        if data.is_empty() {
+            return Err(Error::SaveStateFailed);
+        }
+        let _guard = box3d_lock::lock();
+        // SAFETY: `data` is a live slice for the duration of the call.
+        let ok = unsafe {
+            ffi::b3World_LoadState(self.raw(), data.as_ptr(), data.len() as std::os::raw::c_int)
+        };
+        if ok { Ok(()) } else { Err(Error::SaveStateFailed) }
+    }
 }

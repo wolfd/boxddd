@@ -3660,6 +3660,25 @@ unsafe extern "C" {
     ) -> b3RayResult;
 }
 unsafe extern "C" {
+    #[doc = " Serialize a world into a freshly allocated, self-contained buffer.\n Returns NULL on failure; the caller frees it with b3FreeSaveState."]
+    pub fn b3World_SaveState(
+        worldId: b3WorldId,
+        size: *mut ::std::os::raw::c_int,
+    ) -> *mut u8;
+}
+unsafe extern "C" {
+    #[doc = " Release a buffer returned by b3World_SaveState."]
+    pub fn b3FreeSaveState(data: *mut u8, size: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    #[doc = " Overwrite a world with a saved image. Returns false if incompatible."]
+    pub fn b3World_LoadState(
+        worldId: b3WorldId,
+        data: *const u8,
+        size: ::std::os::raw::c_int,
+    ) -> bool;
+}
+unsafe extern "C" {
     #[doc = " Cast a shape through the world. Similar to a cast ray except that a shape is cast instead of a point.\n The proxy points are relative to the origin and the hit points come back as world positions, so the\n cast stays precise far from the world origin.\n\t@see b3World_CastRay"]
     pub fn b3World_CastShape(
         worldId: b3WorldId,
