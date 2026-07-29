@@ -987,6 +987,64 @@ impl World {
     /// Returns the safe travel fraction in `[0, 1]`. Use [`Self::collide_mover`] at the final
     /// position to gather contact planes; Box3D's mover cast is for swept motion, not contact
     /// inspection.
+    /// [`Self::visit_cast_shape`] without the global lock — the shape-cast
+    /// sibling of [`Self::visit_cast_ray_concurrent`], with the same safety
+    /// contract: the caller must guarantee no thread mutates any Box3D world
+    /// for the duration.
+    ///
+    /// A shape cast is read-only in the same way a ray cast is; the lock it
+    /// omits is the binding's conservative guard around the whole native API,
+    /// and with it a parallel batch is slower than a serial one.
+    pub fn visit_cast_shape_concurrent<F>(
+        &self,
+        origin: impl Into<Pos>,
+        input: ShapeCastInput,
+        filter: QueryFilter,
+        visitor: F,
+    ) -> Result<TreeStats>
+    where
+        F: FnMut(RayHit) -> f32,
+    {
+        callback_state::check_not_in_callback()?;
+        #[cfg(all(target_arch = "wasm32", boxddd_wasm_provider))]
+        {
+            let _ = (origin, input, filter, visitor);
+            Err(Error::UnsupportedOnWasm)
+        }
+        #[cfg(not(all(target_arch = "wasm32", boxddd_wasm_provider)))]
+        {
+            let origin = origin.into().validate()?;
+            let input = input.validate()?;
+            let raw_input = input.raw();
+            let mut ctx = CastContext {
+                visitor,
+                panicked: false,
+            };
+            self.check_world_valid_locked()?;
+            let stats = unsafe {
+                ffi::b3World_CastShape(
+                    self.raw(),
+                    origin.into_raw(),
+                    &raw_input.proxy,
+                    raw_input.translation,
+                    filter.raw(),
+                    Some(cast_trampoline::<F>),
+                    (&mut ctx as *mut CastContext<_>).cast(),
+                )
+            };
+            if ctx.panicked {
+                Err(Error::CallbackPanicked)
+            } else {
+                Ok(TreeStats::from_raw(stats))
+            }
+        }
+    }
+
+    /// Casts a capsule-shaped character mover through the world.
+    ///
+    /// Returns the safe travel fraction in `[0, 1]`. Use [`Self::collide_mover`] at the final
+    /// position to gather contact planes; Box3D's mover cast is for swept motion, not contact
+    /// inspection.
     pub fn cast_mover(
         &self,
         origin: impl Into<Pos>,
