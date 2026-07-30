@@ -74,6 +74,18 @@ B3_API int b3World_GetContactCapacity( b3WorldId worldId );
 /// Copy all current touching contacts in the world, visiting each pair once.
 B3_API int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int capacity );
 
+/// Get a conservative capacity for the per-body sleep data in the world.
+B3_API int b3World_GetBodySleepCapacity( b3WorldId worldId );
+
+/// Copy the current sleep state of every enabled body. Read-only observation data.
+B3_API int b3World_GetBodySleepData( b3WorldId worldId, b3BodySleepData* sleepData, int capacity );
+
+/// Get a conservative capacity for the island census data in the world.
+B3_API int b3World_GetIslandCensusCapacity( b3WorldId worldId );
+
+/// Copy a sleep census of every island (awake or sleeping). Read-only observation data.
+B3_API int b3World_GetIslandCensusData( b3WorldId worldId, b3IslandCensus* censusData, int capacity );
+
 /// Get the joint events for the current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3JointEvents b3World_GetJointEvents( b3WorldId worldId );
 

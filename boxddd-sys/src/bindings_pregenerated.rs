@@ -1305,6 +1305,38 @@ pub struct b3ContactData {
     #[doc = " The number of contact manifolds. For mesh and height-field collision there can be multiple manifolds."]
     pub manifoldCount: ::std::os::raw::c_int,
 }
+#[doc = " Read-only sleep-state sample for one body, copied by b3World_GetBodySleepData."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3BodySleepData {
+    #[doc = " The body id."]
+    pub bodyId: b3BodyId,
+    #[doc = " Seconds this body has continuously stayed below its sleep threshold."]
+    pub sleepTime: f32,
+    #[doc = " The body's most recent sleep velocity measure (updated while awake)."]
+    pub sleepVelocity: f32,
+    #[doc = " Id of the island containing this body, or -1 when the body is not in\n an island (static bodies are never in islands)."]
+    pub islandId: ::std::os::raw::c_int,
+}
+#[doc = " Read-only sleep census for one island, copied by b3World_GetIslandCensusData."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3IslandCensus {
+    #[doc = " The island id."]
+    pub islandId: ::std::os::raw::c_int,
+    #[doc = " Number of bodies in the island."]
+    pub bodyCount: ::std::os::raw::c_int,
+    #[doc = " Number of contacts in the island."]
+    pub contactCount: ::std::os::raw::c_int,
+    #[doc = " Number of constraints removed from this island since it was created or\n last split. A non-zero count blocks sleep for multi-body islands."]
+    pub constraintRemoveCount: ::std::os::raw::c_int,
+    #[doc = " Smallest sleep time across the island's bodies, in seconds."]
+    pub minSleepTime: f32,
+    #[doc = " The body holding the smallest sleep time, i.e. the body currently\n keeping the island awake. Null when the island has no bodies."]
+    pub minSleepTimeBody: b3BodyId,
+    #[doc = " Number of bodies whose sleep time has reached the engine time-to-sleep\n duration (the per-body qualification for island sleep)."]
+    pub sleepReadyCount: ::std::os::raw::c_int,
+}
 #[doc = " The query filter is used to filter collisions between queries and shapes. For example,\n you may want a ray-cast representing a projectile to hit players and the static environment\n but not debris."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -3611,6 +3643,30 @@ unsafe extern "C" {
     pub fn b3World_GetContactData(
         worldId: b3WorldId,
         contactData: *mut b3ContactData,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    #[doc = " Get a conservative capacity for the per-body sleep data in the world."]
+    pub fn b3World_GetBodySleepCapacity(worldId: b3WorldId) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    #[doc = " Copy the current sleep state of every enabled body. Read-only observation data."]
+    pub fn b3World_GetBodySleepData(
+        worldId: b3WorldId,
+        sleepData: *mut b3BodySleepData,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    #[doc = " Get a conservative capacity for the island census data in the world."]
+    pub fn b3World_GetIslandCensusCapacity(worldId: b3WorldId) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    #[doc = " Copy a sleep census of every island (awake or sleeping). Read-only observation data."]
+    pub fn b3World_GetIslandCensusData(
+        worldId: b3WorldId,
+        censusData: *mut b3IslandCensus,
         capacity: ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int;
 }

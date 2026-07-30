@@ -18,6 +18,7 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
 
 ### Added
 
+- `World::try_world_body_sleep_buffered` / `try_world_island_census_buffered`: allocation-free bulk observers for per-body sleep state (`sleepTime`, `sleepVelocity`, island id) and per-island sleep census (body/contact counts, constraint remove count, minimum sleep time and its body, sleep-ready count), wrapping the new `b3World_GetBodySleepData` / `b3World_GetIslandCensusData`. Read-only; useful for diagnosing sleep onset in contact-heavy scenes.
 - `World::try_set_shape_name` / `try_shape_name` wrapping the new `b3Shape_SetName` / `b3Shape_GetName`.
 - `RecPlayer::sub_step_frame` / `is_at_pre_step` wrapping the new replay sub-step scrubbing API.
 

@@ -1876,6 +1876,105 @@ int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int c
 	return index;
 }
 
+int b3World_GetBodySleepCapacity( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	return b3GetIdCount( &world->bodyIdPool );
+}
+
+int b3World_GetBodySleepData( b3WorldId worldId, b3BodySleepData* sleepData, int capacity )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	int index = 0;
+	for ( int bodyId = 0; bodyId < world->bodies.count && index < capacity; ++bodyId )
+	{
+		b3Body* body = b3Array_Get( world->bodies, bodyId );
+		if ( body->id == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		sleepData[index].bodyId = b3MakeBodyId( world, bodyId );
+		sleepData[index].sleepTime = body->sleepTime;
+		sleepData[index].sleepVelocity = body->sleepVelocity;
+		sleepData[index].islandId = body->islandId;
+		index += 1;
+	}
+
+	B3_ASSERT( index <= capacity );
+	return index;
+}
+
+int b3World_GetIslandCensusCapacity( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	return b3GetIdCount( &world->islandIdPool );
+}
+
+int b3World_GetIslandCensusData( b3WorldId worldId, b3IslandCensus* censusData, int capacity )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	int index = 0;
+	for ( int islandId = 0; islandId < world->islands.count && index < capacity; ++islandId )
+	{
+		b3Island* island = b3Array_Get( world->islands, islandId );
+		if ( island->setIndex == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		b3IslandCensus* census = censusData + index;
+		census->islandId = island->islandId;
+		census->bodyCount = island->bodies.count;
+		census->contactCount = island->contacts.count;
+		census->constraintRemoveCount = island->constraintRemoveCount;
+		census->minSleepTime = 0.0f;
+		census->minSleepTimeBody = b3_nullBodyId;
+		census->sleepReadyCount = 0;
+
+		for ( int i = 0; i < island->bodies.count; ++i )
+		{
+			int islandBodyId = island->bodies.data[i];
+			b3Body* body = b3Array_Get( world->bodies, islandBodyId );
+			if ( i == 0 || body->sleepTime < census->minSleepTime )
+			{
+				census->minSleepTime = body->sleepTime;
+				census->minSleepTimeBody = b3MakeBodyId( world, islandBodyId );
+			}
+
+			if ( body->sleepTime >= B3_TIME_TO_SLEEP )
+			{
+				census->sleepReadyCount += 1;
+			}
+		}
+
+		index += 1;
+	}
+
+	B3_ASSERT( index <= capacity );
+	return index;
+}
+
 b3JointEvents b3World_GetJointEvents( b3WorldId worldId )
 {
 	b3World* world = b3GetUnlockedWorldFromId( worldId );

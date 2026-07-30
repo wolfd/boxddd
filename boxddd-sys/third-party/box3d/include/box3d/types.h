@@ -1276,6 +1276,51 @@ typedef struct b3ContactData
 	int manifoldCount;
 } b3ContactData;
 
+/// Read-only sleep-state sample for one body, copied by b3World_GetBodySleepData.
+typedef struct b3BodySleepData
+{
+	/// The body id.
+	b3BodyId bodyId;
+
+	/// Seconds this body has continuously stayed below its sleep threshold.
+	float sleepTime;
+
+	/// The body's most recent sleep velocity measure (updated while awake).
+	float sleepVelocity;
+
+	/// Id of the island containing this body, or -1 when the body is not in
+	/// an island (static bodies are never in islands).
+	int islandId;
+} b3BodySleepData;
+
+/// Read-only sleep census for one island, copied by b3World_GetIslandCensusData.
+typedef struct b3IslandCensus
+{
+	/// The island id.
+	int islandId;
+
+	/// Number of bodies in the island.
+	int bodyCount;
+
+	/// Number of contacts in the island.
+	int contactCount;
+
+	/// Number of constraints removed from this island since it was created or
+	/// last split. A non-zero count blocks sleep for multi-body islands.
+	int constraintRemoveCount;
+
+	/// Smallest sleep time across the island's bodies, in seconds.
+	float minSleepTime;
+
+	/// The body holding the smallest sleep time, i.e. the body currently
+	/// keeping the island awake. Null when the island has no bodies.
+	b3BodyId minSleepTimeBody;
+
+	/// Number of bodies whose sleep time has reached the engine time-to-sleep
+	/// duration (the per-body qualification for island sleep).
+	int sleepReadyCount;
+} b3IslandCensus;
+
 /**@}*/ // event
 
 /**

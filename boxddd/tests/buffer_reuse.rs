@@ -1,6 +1,6 @@
 use boxddd::{
-    Aabb, BodyDef, BodyType, BoxHull, ContactBuffer, ContactId, Manifold, QueryFilter, ShapeDef,
-    ShapeId, Sphere, World, WorldDef,
+    Aabb, BodyDef, BodySleepBuffer, BodyType, BoxHull, ContactBuffer, ContactId,
+    IslandCensusBuffer, Manifold, QueryFilter, ShapeDef, ShapeId, Sphere, World, WorldDef,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -85,6 +85,50 @@ fn buffered_contacts_match_the_allocating_query_and_reuse_storage() {
     // Refill: same contents, no fresh growth beyond the warmed capacity.
     world.try_body_contacts_buffered(cube, &mut buf).unwrap();
     assert_eq!(buf.len(), allocating.len());
+}
+
+/// The sleep observers report a settled cube as sleep-qualified inside its
+/// island, agree with each other, and refilling reuses the warm buffers.
+#[test]
+fn sleep_observers_report_a_settled_cube_and_reuse_storage() {
+    let (world, cube) = settled_box_on_ground();
+
+    let mut bodies = BodySleepBuffer::new();
+    world.try_world_body_sleep_buffered(&mut bodies).unwrap();
+    // The static ground and the dynamic cube.
+    assert_eq!(bodies.len(), 2);
+    let sample = *bodies
+        .iter()
+        .find(|s| s.body_id == cube)
+        .expect("the cube must be sampled");
+    assert!(
+        sample.sleep_time >= 0.5,
+        "120 settled steps must reach the engine time-to-sleep ({})",
+        sample.sleep_time
+    );
+    assert!(sample.island_id >= 0, "a dynamic body is always in an island");
+    let ground_sample = bodies.iter().find(|s| s.body_id != cube).unwrap();
+    assert!(
+        ground_sample.island_id < 0,
+        "static bodies are never in islands"
+    );
+
+    let mut islands = IslandCensusBuffer::new();
+    world.try_world_island_census_buffered(&mut islands).unwrap();
+    assert_eq!(islands.len(), 1, "one dynamic body forms one island");
+    let island = islands.entries()[0];
+    assert_eq!(island.island_id, sample.island_id);
+    assert_eq!(island.body_count, 1);
+    assert_eq!(island.min_sleep_time, sample.sleep_time);
+    assert_eq!(island.min_sleep_time_body, cube);
+    assert_eq!(island.sleep_ready_count, 1);
+
+    // Refill: same contents from the warm buffers.
+    world.try_world_body_sleep_buffered(&mut bodies).unwrap();
+    assert_eq!(bodies.len(), 2);
+    world.try_world_island_census_buffered(&mut islands).unwrap();
+    assert_eq!(islands.len(), 1);
+    assert_eq!(islands.entries()[0], island);
 }
 
 #[test]

@@ -252,6 +252,7 @@ mod body_api;
 mod creation;
 mod runtime;
 mod shape_api;
+mod sleep_api;
 
 impl World {
     /// Creates a new value with default settings.
