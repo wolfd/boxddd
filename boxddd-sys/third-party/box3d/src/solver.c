@@ -23,6 +23,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // these are useful for solver testing
 #define ITERATIONS 1
@@ -53,6 +54,98 @@ static void b3Pause( void )
 {
 }
 #endif
+
+// Maximum number of consecutive `b3Pause()` calls a waiting solver worker issues
+// between two loads of `atomicSyncBits` (FORK, see b3SolverTask's spinner).
+// Tunable: larger values cut load-loop bandwidth but delay the start of the next
+// stage by up to one burst.
+#define B3_SPIN_PAUSE_MAX 32
+
+// Default wait policy (a b3SpinPolicy value). Overridable at runtime with
+// BOX3D_SPIN_POLICY; see the enum below.
+//
+// b3_spinPolicyHintPark won a four-policy comparison on a destruction-heavy rigid body
+// benchmark (400 steps, four seeds, ~3,700 coloured plus ~1,500 overflow constraints per
+// step, 8C/16T desktop): step time neutral against upstream at every width up to the
+// host's physical core count, with a third of total process CPU handed back (8 workers:
+// 156.2 s versus 235.1 s over the run). It beats the timed park on both axes because it
+// pays wake latency at the ~18 serial windows in a step rather than at all ~600 stage
+// barriers.
+#define B3_SPIN_POLICY_DEFAULT 3
+
+// How many full-size pause bursts a worker issues before it parks on its semaphore.
+// This is the spin/park tradeoff: a stage barrier is a few microseconds apart, so the
+// budget must outlast one, while the serial phases the main thread runs alone (overflow
+// prepare / warm start / store impulses) last long enough that spinning through them
+// wastes whole cores. ~32 x 32 pauses is tens of microseconds, above a barrier and well
+// below a serial phase.
+#define B3_SPIN_BURSTS_BEFORE_PARK 32
+
+// Bursts a worker waits before parking once the orchestrator has flagged a serial phase
+// (b3_spinPolicyHintPark). The flag already says the wait will be long, so this only has
+// to outlast the flag's own store becoming visible.
+#define B3_SPIN_BURSTS_HINTED 2
+
+// FORK: wait policies for an idle solver worker, selectable at runtime so all of
+// them can be measured from ONE binary — this benchmark is sensitive to link layout at
+// the ~2.5% level, so comparing separate builds would confound the policy with its own
+// code placement. Spin policy cannot reach results (which worker runs which block is not
+// observable), so switching or sweeping it is hash-neutral by construction.
+typedef enum b3SpinPolicy
+{
+	// Upstream: ~12 pause instructions, then a sched_yield syscall, forever. Kept as the
+	// in-binary control.
+	b3_spinPolicyYield = 0,
+
+	// Exponential pause backoff, never parks. No syscalls, but an idle worker still holds
+	// its core (and its SMT sibling's issue slots).
+	b3_spinPolicyBackoff = 1,
+
+	// Backoff, then park on the worker's semaphore after `spinBurstsBeforePark` bursts.
+	b3_spinPolicyTimedPark = 2,
+
+	// Backoff, and park only while the orchestrator has flagged a serial phase. Parks a
+	// couple of dozen times per step instead of at every one of ~600 stage barriers.
+	b3_spinPolicyHintPark = 3,
+} b3SpinPolicy;
+
+// `BOX3D_SPIN_POLICY` selects a b3SpinPolicy; `BOX3D_SPIN_BURSTS` overrides the timed
+// park budget (0 parks as soon as the pause ramp tops out). Both are read once, on the
+// main thread, during step setup; workers only read the resolved values out of
+// b3StepContext.
+static int b3GetEnvInt( const char* name, int fallback, int lo, int hi )
+{
+	const char* env = getenv( name );
+	if ( env == NULL )
+	{
+		return fallback;
+	}
+
+	int value = atoi( env );
+	return value < lo || value > hi ? fallback : value;
+}
+
+static int b3GetSpinPolicy( void )
+{
+	static int cached = -1;
+	if ( cached < 0 )
+	{
+		cached = b3GetEnvInt( "BOX3D_SPIN_POLICY", B3_SPIN_POLICY_DEFAULT, 0, b3_spinPolicyHintPark );
+	}
+
+	return cached;
+}
+
+static int b3GetSpinBurstsBeforePark( void )
+{
+	static int cached = -1;
+	if ( cached < 0 )
+	{
+		cached = b3GetEnvInt( "BOX3D_SPIN_BURSTS", B3_SPIN_BURSTS_BEFORE_PARK, 0, INT_MAX );
+	}
+
+	return cached;
+}
 
 typedef struct b3WorkerContext
 {
@@ -1111,6 +1204,41 @@ static void b3ExecuteStage( b3SolverStage* stage, b3StepContext* context, int pr
 	(void)b3AtomicFetchAddInt( &stage->completionCount, completedCount );
 }
 
+// FORK: publish new sync bits, then wake every worker that parked waiting for
+// them. The mask load MUST follow the sync-bits store: a parking worker sets its bit
+// before its last read of the bits, so a worker that missed this publish is already
+// visible in the mask, and a worker that set its bit after this load has already seen
+// the new bits and will not wait. Both sides are sequentially consistent, which is what
+// makes that argument hold (Dekker). Cost when nothing is parked — the case inside a
+// tight run of stage barriers — is one uncontended atomic load.
+static void b3PublishSyncBits( b3StepContext* context, uint32_t syncBits )
+{
+	b3AtomicStoreU32( &context->atomicSyncBits, syncBits );
+
+	b3World* world = context->world;
+	uint32_t parked = b3AtomicLoadU32( &world->parkedWorkerMask );
+	while ( parked != 0 )
+	{
+		uint32_t workerIndex = b3CTZ32( parked );
+		parked &= parked - 1;
+		b3SignalSemaphore( world->workerParkSemaphores[workerIndex] );
+	}
+}
+
+// FORK: bracket a window in which the orchestrator runs overflow constraints on
+// its own, so idle workers under b3_spinPolicyHintPark park instead of spinning through
+// it. Advisory: a worker that misses the flag just spins, and one that parks is still
+// woken by the next b3PublishSyncBits.
+static inline void b3BeginSerialPhase( b3StepContext* context )
+{
+	b3AtomicStoreU32( &context->serialPhase, 1 );
+}
+
+static inline void b3EndSerialPhase( b3StepContext* context )
+{
+	b3AtomicStoreU32( &context->serialPhase, 0 );
+}
+
 // Execute a stage on worker 0 (main thread).
 static void b3ExecuteMainStage( b3SolverStage* stage, b3StepContext* context, uint32_t syncBits )
 {
@@ -1128,7 +1256,7 @@ static void b3ExecuteMainStage( b3SolverStage* stage, b3StepContext* context, ui
 	}
 	else
 	{
-		b3AtomicStoreU32( &context->atomicSyncBits, syncBits );
+		b3PublishSyncBits( context, syncBits );
 
 		int syncIndex = ( syncBits >> 16 ) & 0xFFFF;
 		B3_ASSERT( syncIndex > 0 );
@@ -1154,7 +1282,8 @@ static void b3SolverTask( void* taskContext )
 	b3StepContext* context = workerContext->context;
 	int activeColorCount = context->activeColorCount;
 	b3SolverStage* stages = context->stages;
-	b3Profile* profile = &context->world->profile;
+	b3World* world = context->world;
+	b3Profile* profile = &world->profile;
 
 	if ( workerIndex == 0 )
 	{
@@ -1222,8 +1351,10 @@ static void b3SolverTask( void* taskContext )
 		meshSyncIndex += 1;
 
 		// Single-threaded overflow work. These constraints don't fit in the graph coloring.
+		b3BeginSerialPhase( context );
 		b3PrepareJoints_Overflow( context );
 		b3PrepareContacts_Overflow( context );
+		b3EndSerialPhase( context );
 
 		profile->prepareConstraints += b3GetMillisecondsAndReset( &ticks );
 
@@ -1245,8 +1376,10 @@ static void b3SolverTask( void* taskContext )
 			profile->integrateVelocities += b3GetMillisecondsAndReset( &ticks );
 
 			// Warm start constraints
+			b3BeginSerialPhase( context );
 			b3WarmStartJoints_Overflow( context );
 			b3WarmStartContacts_Overflow( context );
+			b3EndSerialPhase( context );
 
 			for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 			{
@@ -1264,8 +1397,10 @@ static void b3SolverTask( void* taskContext )
 			for ( int j = 0; j < ITERATIONS; ++j )
 			{
 				// Overflow constraints have lower priority. Typically these are dynamic-vs-dynamic.
+				b3BeginSerialPhase( context );
 				b3SolveJoints_Overflow( context, useBias );
 				b3SolveContacts_Overflow( context, useBias );
+				b3EndSerialPhase( context );
 
 				for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 				{
@@ -1292,8 +1427,10 @@ static void b3SolverTask( void* taskContext )
 			useBias = false;
 			for ( int j = 0; j < RELAX_ITERATIONS; ++j )
 			{
+				b3BeginSerialPhase( context );
 				b3SolveJoints_Overflow( context, useBias );
 				b3SolveContacts_Overflow( context, useBias );
+				b3EndSerialPhase( context );
 
 				for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
 				{
@@ -1314,7 +1451,9 @@ static void b3SolverTask( void* taskContext )
 
 		// Restitution
 		{
+			b3BeginSerialPhase( context );
 			b3ApplyRestitution_Overflow( context );
+			b3EndSerialPhase( context );
 
 			int iterStageIndex = stageIndex;
 			for ( int colorIndex = 0; colorIndex < activeColorCount; ++colorIndex )
@@ -1331,7 +1470,9 @@ static void b3SolverTask( void* taskContext )
 		profile->applyRestitution += b3GetMillisecondsAndReset( &ticks );
 
 		// Store impulses
+		b3BeginSerialPhase( context );
 		b3StoreImpulses_Overflow( context );
+		b3EndSerialPhase( context );
 
 		syncBits = ( convexSyncIndex << 16 ) | stageIndex;
 		B3_ASSERT( stages[stageIndex].type == b3_stageStoreWideImpulses );
@@ -1345,8 +1486,9 @@ static void b3SolverTask( void* taskContext )
 
 		profile->storeImpulses += b3GetMillisecondsAndReset( &ticks );
 
-		// Signal workers to finish
-		b3AtomicStoreU32( &context->atomicSyncBits, UINT_MAX );
+		// Signal workers to finish. This must go through the publish helper too, or a
+		// worker parked in the last serial phase never wakes and the step never returns.
+		b3PublishSyncBits( context, UINT_MAX );
 
 		B3_ASSERT( stageIndex == context->stageCount );
 		return;
@@ -1354,36 +1496,101 @@ static void b3SolverTask( void* taskContext )
 
 	// Worker spins and waits for work
 	uint32_t lastSyncBits = 0;
-	// uint64_t maxSpinTime = 10;
 	while ( true )
 	{
-		// Spin until main thread bumps changes the sync bits. This can waste significant time overall, but it is necessary for
+		// Spin until the main thread changes the sync bits. This can waste significant time overall, but it is necessary for
 		// parallel simulation with graph coloring.
-		// todo improve this spinner
+		//
+		// FORK (2026-07-29): exponential `pause` backoff, then park, replacing upstream's
+		// "~12 pause then b3Yield()" policy. That policy issued a sched_yield syscall
+		// every few hundred nanoseconds per idle worker for the whole step: measured on a
+		// destruction-heavy benchmark at 8 workers, 81 s of system time out of 235 s of
+		// total CPU, and because a yielding thread stays runnable the kernel books each
+		// resulting switch as INVOLUNTARY — 8.2M of them at 16 workers against a ~400k
+		// floor at 8. Backing off with `pause` removes the syscalls but still burns a core
+		// per idle worker, so a worker that has waited past the budget blocks on its
+		// semaphore instead and gives the core back.
+		//
+		// Which worker executes which block never reaches results, so every policy is
+		// behavior-neutral: a bit-exact determinism suite over the simulated state held
+		// under all four, at every worker count.
+		const int spinPolicy = context->spinPolicy;
 		uint32_t syncBits;
+		int pauseBurst = 1;
+		int burstsAtMax = 0;
 		int spinCount = 0;
 		while ( ( syncBits = b3AtomicLoadU32( &context->atomicSyncBits ) ) == lastSyncBits )
 		{
-			if ( spinCount > 5 )
+			if ( spinPolicy == b3_spinPolicyYield )
 			{
-				b3Yield();
-				spinCount = 0;
+				// Upstream policy, kept as the in-binary control.
+				if ( spinCount > 5 )
+				{
+					b3Yield();
+					spinCount = 0;
+				}
+				else
+				{
+					b3Pause();
+					b3Pause();
+					spinCount += 1;
+				}
+				continue;
+			}
+
+			for ( int i = 0; i < pauseBurst; ++i )
+			{
+				b3Pause();
+			}
+
+			// Cap the burst so wake latency stays short relative to a barrier interval.
+			// A step crosses ~600 barriers, so an unbounded backoff would lose more in
+			// late starts than it saves in load-loop bandwidth.
+			if ( pauseBurst < B3_SPIN_PAUSE_MAX )
+			{
+				pauseBurst *= 2;
+				continue;
+			}
+
+			if ( spinPolicy == b3_spinPolicyBackoff )
+			{
+				continue;
+			}
+
+			bool parkNow;
+			if ( spinPolicy == b3_spinPolicyHintPark )
+			{
+				// Only give the core back where the orchestrator says the wait is long.
+				parkNow = b3AtomicLoadU32( &context->serialPhase ) != 0 && burstsAtMax >= B3_SPIN_BURSTS_HINTED;
 			}
 			else
 			{
-				// Using the cycle counter helps to account for variation in mm_pause timing across different
-				// CPUs. However, this is X64 only.
-				// uint64_t prev = __rdtsc();
-				// do
-				//{
-				//	b3Pause();
-				//}
-				// while ((__rdtsc() - prev) < maxSpinTime);
-				// maxSpinTime += 10;
-				b3Pause();
-				b3Pause();
-				spinCount += 1;
+				parkNow = burstsAtMax >= context->spinBurstsBeforePark;
 			}
+
+			if ( parkNow == false )
+			{
+				// Saturate rather than wrap: under the hint policy an unhinted wait can
+				// spin indefinitely, and signed overflow here would be UB.
+				if ( burstsAtMax < INT_MAX )
+				{
+					burstsAtMax += 1;
+				}
+				continue;
+			}
+
+			// Park. The bit goes up BEFORE the last read of the sync bits so a publisher
+			// running between the two still sees this worker and signals it; see
+			// b3PublishSyncBits for the other half. Neither counter is reset afterwards:
+			// a spurious wake (a raced signal leaves a stray permit) should re-park
+			// promptly rather than spin the whole budget again.
+			uint32_t parkBit = 1u << workerIndex;
+			b3AtomicFetchOrU32( &world->parkedWorkerMask, parkBit );
+			if ( b3AtomicLoadU32( &context->atomicSyncBits ) == lastSyncBits )
+			{
+				b3WaitSemaphore( world->workerParkSemaphores[workerIndex] );
+			}
+			b3AtomicFetchAndU32( &world->parkedWorkerMask, ~parkBit );
 		}
 
 		if ( syncBits == UINT_MAX )
@@ -1788,6 +1995,9 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		stepContext->graph = graph;
 		stepContext->activeColorCount = activeColorCount;
 		stepContext->workerCount = workerCount;
+		stepContext->spinPolicy = b3GetSpinPolicy();
+		stepContext->spinBurstsBeforePark = b3GetSpinBurstsBeforePark();
+		b3AtomicStoreU32( &stepContext->serialPhase, 0 );
 		stepContext->stageCount = stageCount;
 		stepContext->stages = stages;
 		stepContext->wideConstraints = wideConstraints;

@@ -250,6 +250,13 @@ b3WorldId b3CreateWorld( const b3WorldDef* def )
 	b3Array_Reserve( world->manifoldAllocators, 16 );
 	world->manifoldAllocatorMutex = b3CreateMutex();
 
+	// FORK: one park semaphore per possible worker index. See b3SolverTask.
+	for ( int i = 0; i < B3_MAX_WORKERS; ++i )
+	{
+		world->workerParkSemaphores[i] = b3CreateSemaphore( 0 );
+	}
+	b3AtomicStoreU32( &world->parkedWorkerMask, 0 );
+
 	b3CreateBroadPhase( &world->broadPhase, &def->capacity );
 	b3CreateGraph( &world->constraintGraph, 16 );
 
@@ -519,6 +526,14 @@ void b3DestroyWorld( b3WorldId worldId )
 	}
 	b3Array_Destroy( world->manifoldAllocators );
 	b3DestroyMutex( world->manifoldAllocatorMutex );
+
+	// FORK: no worker can be parked here — the step that could park them has
+	// returned. A stray permit from a raced wake is harmless (count above the initial
+	// count is what libdispatch tolerates; below it is what aborts).
+	for ( int i = 0; i < B3_MAX_WORKERS; ++i )
+	{
+		b3DestroySemaphore( world->workerParkSemaphores[i] );
+	}
 
 	b3DestroyStack( &world->stack );
 

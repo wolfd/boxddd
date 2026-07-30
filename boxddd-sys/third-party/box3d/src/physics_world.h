@@ -258,6 +258,17 @@ typedef struct b3World
 	void* userTaskContext;
 	void* userTreeTask;
 
+	// FORK (2026-07-29): solver worker parking. A worker that has waited past its spin
+	// budget without seeing new sync bits sets its bit in `parkedWorkerMask` and blocks
+	// on its own semaphore; whoever publishes sync bits signals exactly the workers whose
+	// bits are set. One semaphore per worker index (not one shared counting semaphore) so
+	// a raced wake leaves at most one stray permit per worker, which the next wait
+	// consumes. B3_MAX_WORKERS is 32, so the mask is exactly one u32. Created for every
+	// index at world creation because b3World_SetWorkerCount can raise the count later.
+	// See b3SolverTask in solver.c for the wait policies and the park handshake.
+	b3Semaphore* workerParkSemaphores[B3_MAX_WORKERS];
+	b3AtomicU32 parkedWorkerMask;
+
 	struct b3Scheduler* scheduler;
 
 	void* userData;
