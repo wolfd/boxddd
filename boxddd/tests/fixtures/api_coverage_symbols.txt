@@ -74,6 +74,9 @@ b3CreateRecording|safe|recording|box3d.h|covered by current safe wrapper impleme
 b3DestroyRecording|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3Recording_GetData|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3Recording_GetSize|safe|recording|box3d.h|covered by current safe wrapper implementation
+b3World_SaveState|safe|recording|box3d.h|covered by current safe wrapper implementation
+b3World_LoadState|safe|recording|box3d.h|covered by current safe wrapper implementation
+b3FreeSaveState|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3World_StartRecording|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_StopRecording|safe|world|box3d.h|covered by current safe wrapper implementation
 b3SaveRecordingToFile|raw|recording|box3d.h|native save helper remains raw; Recording::save_to_file writes safe bytes through Rust IO
