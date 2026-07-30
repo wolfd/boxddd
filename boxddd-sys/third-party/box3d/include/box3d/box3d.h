@@ -257,6 +257,36 @@ B3_API void b3World_EnableSpeculative( b3WorldId worldId, bool flag );
  * @{
  */
 
+/**
+ * @defgroup savestate Save state
+ * Standalone world save/restore, independent of the recording/replay system.
+ *
+ * These wrap the same serializer the replay player uses for its keyframes, so a
+ * restored world reproduces the original bit-for-bit — including the contact
+ * manifolds and their warm-start impulses, the sleep timers, the island and
+ * constraint-graph structure, and the broadphase, none of which can be rebuilt
+ * from body transforms alone.
+ *
+ * The blob is self-contained: it carries the interned shape geometry alongside
+ * the world image, so a save and its load need share no other state.
+ * @{
+ */
+
+/// Serialize `worldId` into a freshly allocated buffer. Returns NULL on failure.
+/// The caller owns the result and must release it with b3FreeSaveState.
+/// `size` receives the byte count.
+B3_API uint8_t* b3World_SaveState( b3WorldId worldId, int* size );
+
+/// Release a buffer returned by b3World_SaveState.
+B3_API void b3FreeSaveState( uint8_t* data, int size );
+
+/// Overwrite `worldId` with the state in `[data, size)`. The target must be a
+/// world created with the same definition (a "shell"); its existing contents are
+/// discarded. Returns false on a corrupt or incompatible image.
+B3_API bool b3World_LoadState( b3WorldId worldId, const uint8_t* data, int size );
+
+/** @} */
+
 /// Opaque recording handle. Create with b3CreateRecording, destroy with b3DestroyRecording.
 typedef struct b3Recording b3Recording;
 

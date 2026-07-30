@@ -3632,3 +3632,126 @@ void b3RecPlayer_SetDebugShapeCallbacks( b3RecPlayer* player, b3CreateDebugShape
 	// Rebuild the outliner from the frame-0 world that was just stood up under the new callbacks.
 	b3RecSeedFrame0BodyIds( player );
 }
+
+
+// ============================================================================
+// Standalone world save/restore (b3World_SaveState / b3World_LoadState).
+//
+// Lives here because it needs b3RecLoadSlots, which is static to this file, and
+// the serializer pair from world_snapshot.h. The layout matches a recording's
+// prefix exactly — header, snapshot image, trailing geometry registry — so the
+// two formats stay in step and the existing loader can be reused verbatim.
+// ============================================================================
+
+uint8_t* b3World_SaveState( b3WorldId worldId, int* size )
+{
+	if ( size != NULL )
+	{
+		*size = 0;
+	}
+	if ( b3World_IsValid( worldId ) == false )
+	{
+		return NULL;
+	}
+	b3World* world = b3GetWorldFromId( worldId );
+
+	// A scratch recording, used only for its geometry registry: b3SerializeWorld
+	// interns each distinct shape blob into it and stores the resulting id in
+	// the image, so the registry has to travel with the snapshot.
+	b3Recording* rec = b3CreateRecording( 1024 );
+	if ( rec == NULL )
+	{
+		return NULL;
+	}
+
+	b3RecBuffer snap = { 0 };
+	b3SerializeWorld( world, &snap, rec );
+
+	b3RecHeader hdr = { 0 };
+	hdr.magic = B3_REC_MAGIC;
+	hdr.versionMajor = B3_REC_VERSION_MAJOR;
+	hdr.versionMinor = B3_REC_VERSION_MINOR;
+	hdr.pointerWidth = (uint8_t)sizeof( void* );
+	hdr.bigEndian = 0;
+	hdr.validationEnabled = B3_ENABLE_VALIDATION ? 1u : 0u;
+	hdr.lengthScale = b3GetLengthUnitsPerMeter();
+	hdr.snapshotSize = (uint64_t)snap.size;
+
+	// Serialize the registry into the scratch recording's own buffer, then lay
+	// out [header][snapshot][registry] and backpatch the offsets.
+	rec->buffer.size = 0;
+	b3RecWriteRegistry( rec );
+
+	hdr.registryOffset = (uint64_t)( sizeof( hdr ) + (size_t)snap.size );
+	hdr.registryByteCount = (uint64_t)rec->buffer.size;
+
+	int total = (int)sizeof( hdr ) + snap.size + rec->buffer.size;
+	uint8_t* out = (uint8_t*)b3Alloc( (size_t)total );
+	if ( out != NULL )
+	{
+		memcpy( out, &hdr, sizeof( hdr ) );
+		if ( snap.size > 0 )
+		{
+			memcpy( out + sizeof( hdr ), snap.data, (size_t)snap.size );
+		}
+		if ( rec->buffer.size > 0 )
+		{
+			memcpy( out + hdr.registryOffset, rec->buffer.data, (size_t)rec->buffer.size );
+		}
+		if ( size != NULL )
+		{
+			*size = total;
+		}
+	}
+
+	b3RecBufFree( &snap );
+	b3DestroyRecording( rec );
+	return out;
+}
+
+void b3FreeSaveState( uint8_t* data, int size )
+{
+	if ( data != NULL && size > 0 )
+	{
+		b3Free( data, (size_t)size );
+	}
+}
+
+bool b3World_LoadState( b3WorldId worldId, const uint8_t* data, int size )
+{
+	if ( b3World_IsValid( worldId ) == false || data == NULL || size < (int)sizeof( b3RecHeader ) )
+	{
+		return false;
+	}
+
+	b3RecHeader hdr;
+	memcpy( &hdr, data, sizeof( hdr ) );
+	if ( hdr.magic != B3_REC_MAGIC || hdr.versionMajor != B3_REC_VERSION_MAJOR )
+	{
+		return false;
+	}
+	if ( hdr.pointerWidth != (uint8_t)sizeof( void* ) || hdr.bigEndian != 0 )
+	{
+		return false;
+	}
+	if ( (uint64_t)sizeof( hdr ) + hdr.snapshotSize > (uint64_t)size )
+	{
+		return false;
+	}
+
+	b3RecReader rdr = { 0 };
+	rdr.ok = true;
+	if ( b3RecLoadSlots( &rdr, data, size, hdr.registryOffset, hdr.registryByteCount ) == false )
+	{
+		return false;
+	}
+
+	b3World* world = b3GetWorldFromId( worldId );
+	bool ok = b3DeserializeIntoShell( data + sizeof( hdr ), (int)hdr.snapshotSize, world, &rdr );
+
+	if ( rdr.slots != NULL )
+	{
+		b3RecFreeSlots( rdr.slots, rdr.slotCount );
+	}
+	return ok;
+}
