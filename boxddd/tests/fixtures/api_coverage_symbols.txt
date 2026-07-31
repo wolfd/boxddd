@@ -60,6 +60,10 @@ b3World_GetAwakeBodyCount|safe|world|box3d.h|covered by current safe wrapper imp
 b3World_GetProfile|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetCounters|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetMaxCapacity|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetBodySleepCapacity|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetBodySleepData|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetIslandCensusCapacity|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetIslandCensusData|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_SetUserData|raw|world|box3d.h|explicit unsafe boxddd::raw user-data boundary
 b3World_GetUserData|raw|world|box3d.h|explicit unsafe boxddd::raw user-data boundary
 b3World_SetFrictionCallback|safe|world|box3d.h|covered by current safe wrapper implementation
