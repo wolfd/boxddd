@@ -380,6 +380,10 @@ impl World {
             return Err(Error::UnsupportedOnWasm);
         }
         callback_state::check_not_in_callback()?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.task_system.is_some() {
+            task_system::ensure_blocking_pool_width(count as usize);
+        }
         let _guard = box3d_lock::lock();
         self.check_world_valid_locked()?;
         unsafe { ffi::b3World_SetWorkerCount(self.raw, count) };

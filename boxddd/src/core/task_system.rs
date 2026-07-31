@@ -27,7 +27,9 @@ impl TaskSystem {
     /// Runs Box3D tasks on a lazily initialized, process-wide pool of blocking
     /// operating-system threads.
     ///
-    /// The pool is sized to [`std::thread::available_parallelism`] and reuses
+    /// The pool is sized to the largest worker count requested by any world
+    /// that installs this scheduler, clamped to
+    /// [`std::thread::available_parallelism`], and reuses
     /// its workers across tasks, steps, and worlds. This scheduler contains
     /// panics, returns them as [`Error::CallbackPanicked`] from
     /// `World::try_step`, and blocks each corresponding Box3D `finishTask`
@@ -253,6 +255,8 @@ struct PoolJob {
 #[cfg(not(target_arch = "wasm32"))]
 struct BlockingPool {
     sender: mpsc::Sender<PoolJob>,
+    receiver: Arc<Mutex<mpsc::Receiver<PoolJob>>>,
+    spawned: Mutex<usize>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -260,32 +264,53 @@ fn blocking_pool() -> &'static BlockingPool {
     static POOL: OnceLock<BlockingPool> = OnceLock::new();
     POOL.get_or_init(|| {
         let (sender, receiver) = mpsc::channel::<PoolJob>();
-        let receiver = Arc::new(Mutex::new(receiver));
-        let threads = std::thread::available_parallelism()
-            .map(usize::from)
-            .unwrap_or(1)
-            .max(1);
-        for worker in 0..threads {
-            let receiver = receiver.clone();
-            thread::Builder::new()
-                .name(format!("boxddd-worker-{worker}"))
-                .spawn(move || {
-                    loop {
-                        let job = {
-                            let recv = receiver.lock().unwrap_or_else(|e| e.into_inner());
-                            recv.recv()
-                        };
-                        let Ok(job) = job else {
-                            break;
-                        };
-                        job.scheduler.run_task(job.invocation);
-                        job.completion.complete();
-                    }
-                })
-                .expect("failed to spawn BoxDDD task worker");
+        BlockingPool {
+            sender,
+            receiver: Arc::new(Mutex::new(receiver)),
+            spawned: Mutex::new(0),
         }
-        BlockingPool { sender }
     })
+}
+
+/// Grows the process-wide blocking pool so it can serve `requested_width`
+/// concurrent Box3D workers, clamped between 1 and
+/// [`std::thread::available_parallelism`].
+///
+/// The pool never shrinks: it holds the maximum width requested so far, so a
+/// world created after a narrower one spawns the workers it is missing here
+/// instead of being starved by the earlier, smaller pool. Requests at or below
+/// the current size are no-ops.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn ensure_blocking_pool_width(requested_width: usize) {
+    let hardware_cap = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .max(1);
+    let target = requested_width.clamp(1, hardware_cap);
+    let pool = blocking_pool();
+    let mut spawned = pool.spawned.lock().unwrap_or_else(|e| e.into_inner());
+    for worker in *spawned..target {
+        let receiver = pool.receiver.clone();
+        thread::Builder::new()
+            .name(format!("boxddd-worker-{worker}"))
+            .spawn(move || {
+                loop {
+                    let job = {
+                        let recv = receiver.lock().unwrap_or_else(|e| e.into_inner());
+                        recv.recv()
+                    };
+                    let Ok(job) = job else {
+                        break;
+                    };
+                    job.scheduler.run_task(job.invocation);
+                    job.completion.complete();
+                }
+            })
+            .expect("failed to spawn BoxDDD task worker");
+    }
+    if target > *spawned {
+        *spawned = target;
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -401,6 +426,8 @@ pub(crate) unsafe extern "C" fn finish_task(user_task: *mut c_void, user_context
 
 #[inline]
 pub(crate) fn install_callbacks(raw_def: &mut ffi::b3WorldDef, task_system: &TaskSystem) {
+    #[cfg(not(target_arch = "wasm32"))]
+    ensure_blocking_pool_width(raw_def.workerCount as usize);
     raw_def.enqueueTask = Some(enqueue_task);
     raw_def.finishTask = Some(finish_task);
     raw_def.userTaskContext = task_system.raw_context();
