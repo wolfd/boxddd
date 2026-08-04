@@ -1264,46 +1264,58 @@ pub fn collide_hulls(
     })
 }
 
-/// Computes a local manifold for a capsule and a triangle.
-pub fn collide_capsule_and_triangle(
-    capsule_a: &Capsule,
-    triangle_b: [Vec3; 3],
+/// Computes a local manifold for a triangle and a capsule.
+///
+/// The manifold normal points from the triangle to the capsule. Upstream
+/// swapped the operand order in Box3D `2386141` ("Fixes 07"), renaming
+/// `b3CollideCapsuleAndTriangle` to `b3CollideTriangleAndCapsule`; the
+/// triangle is now the A shape, so the normal direction is reversed from the
+/// pre-bump wrapper. Callers relying on the old direction must negate.
+pub fn collide_triangle_and_capsule(
+    triangle_a: [Vec3; 3],
+    capsule_b: &Capsule,
 ) -> Result<LocalManifold> {
-    capsule_a.validate()?;
-    validate_triangle(triangle_b)?;
-    let raw_triangle = triangle_b.map(Vec3::into_raw);
+    validate_triangle(triangle_a)?;
+    capsule_b.validate()?;
+    let raw_triangle = triangle_a.map(Vec3::into_raw);
     let mut cache: ffi::b3SimplexCache = unsafe { std::mem::zeroed() };
     collide(Transform::IDENTITY, |manifold, capacity| unsafe {
-        ffi::b3CollideCapsuleAndTriangle(
+        ffi::b3CollideTriangleAndCapsule(
             manifold,
             capacity,
-            capsule_a.raw(),
             raw_triangle.as_ptr(),
+            capsule_b.raw(),
             &mut cache,
         )
     })
 }
 
-/// Computes a local manifold for a hull and a triangle.
-pub fn collide_hull_and_triangle(
-    hull_a: &Hull,
-    triangle_b: [Vec3; 3],
+/// Computes a local manifold for a triangle and a hull.
+///
+/// The manifold normal points from the triangle to the hull — upstream states
+/// this explicitly on `b3CollideTriangleAndHull`. Box3D `2386141` ("Fixes 07")
+/// swapped the operand order and renamed `b3CollideHullAndTriangle`, so the
+/// triangle is now the A shape and the normal direction is REVERSED from the
+/// pre-bump wrapper. Callers relying on the old direction must negate.
+pub fn collide_triangle_and_hull(
+    triangle_a: [Vec3; 3],
     triangle_flags: i32,
+    hull_b: &Hull,
 ) -> Result<LocalManifold> {
-    validate_triangle(triangle_b)?;
+    validate_triangle(triangle_a)?;
     if triangle_flags < 0 {
         return Err(Error::InvalidArgument);
     }
     let mut cache: ffi::b3SATCache = unsafe { std::mem::zeroed() };
     collide(Transform::IDENTITY, |manifold, capacity| unsafe {
-        ffi::b3CollideHullAndTriangle(
+        ffi::b3CollideTriangleAndHull(
             manifold,
             capacity,
-            hull_a.as_ptr(),
-            triangle_b[0].into_raw(),
-            triangle_b[1].into_raw(),
-            triangle_b[2].into_raw(),
+            triangle_a[0].into_raw(),
+            triangle_a[1].into_raw(),
+            triangle_a[2].into_raw(),
             triangle_flags,
+            hull_b.as_ptr(),
             &mut cache,
             // Box3D added an enableSpeculative parameter; true is the upstream
             // default ("leave this true unless you care about reducing ghost
@@ -1313,16 +1325,21 @@ pub fn collide_hull_and_triangle(
     })
 }
 
-/// Computes a local manifold for a sphere and a triangle.
-pub fn collide_sphere_and_triangle(
-    sphere_a: &Sphere,
-    triangle_b: [Vec3; 3],
+/// Computes a local manifold for a triangle and a sphere.
+///
+/// The manifold normal points from the triangle to the sphere. Box3D `2386141`
+/// ("Fixes 07") swapped the operand order and renamed
+/// `b3CollideSphereAndTriangle`, so the triangle is now the A shape and the
+/// normal direction is reversed from the pre-bump wrapper.
+pub fn collide_triangle_and_sphere(
+    triangle_a: [Vec3; 3],
+    sphere_b: &Sphere,
 ) -> Result<LocalManifold> {
-    sphere_a.validate()?;
-    validate_triangle(triangle_b)?;
-    let raw_triangle = triangle_b.map(Vec3::into_raw);
+    validate_triangle(triangle_a)?;
+    sphere_b.validate()?;
+    let raw_triangle = triangle_a.map(Vec3::into_raw);
     collide(Transform::IDENTITY, |manifold, capacity| unsafe {
-        ffi::b3CollideSphereAndTriangle(manifold, capacity, sphere_a.raw(), raw_triangle.as_ptr())
+        ffi::b3CollideTriangleAndSphere(manifold, capacity, raw_triangle.as_ptr(), sphere_b.raw())
     })
 }
 

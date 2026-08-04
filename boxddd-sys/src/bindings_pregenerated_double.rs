@@ -49,11 +49,7 @@ where
             index % 8
         };
         let mask = 1 << bit_index;
-        if val {
-            byte | mask
-        } else {
-            byte & !mask
-        }
+        if val { byte | mask } else { byte & !mask }
     }
     #[inline]
     pub fn set_bit(&mut self, index: usize, val: bool) {
@@ -158,17 +154,23 @@ pub const B3_CONTACT_RECYCLE_ANGULAR_DISTANCE: f64 = 0.99240388;
 pub const B3_AABB_MARGIN_FRACTION: f64 = 0.125;
 pub const B3_TIME_TO_SLEEP: f64 = 0.5;
 pub const B3_MAX_MANIFOLD_POINTS: u32 = 4;
-pub const B3_MAX_SHAPE_CAST_POINTS: u32 = 64;
+pub const B3_GYROSCOPIC_ITERATIONS: u32 = 1;
+pub const B3_MAX_HULL_VERTICES: u32 = 128;
+pub const B3_MAX_HULL_FACES: u32 = 128;
+pub const B3_MAX_HULL_EDGES: u32 = 128;
+pub const B3_PARALLEL_EDGE_TOL: f64 = 0.005;
+pub const B3_MAX_SHAPE_CAST_POINTS: u32 = 128;
 pub const B3_SHAPE_POWER: u32 = 22;
 pub const B3_CHILD_POWER: u32 = 20;
 pub const B3_MAX_SHAPES: u32 = 4194304;
 pub const B3_MAX_CHILD_SHAPES: u32 = 1048576;
+pub const B3_RESTITUTION_ITERATIONS: u32 = 1;
 pub const B3_DYNAMIC_TREE_VERSION: i64 = -7787375179321898166;
-pub const B3_HULL_VERSION: i64 = -7113692011456917490;
+pub const B3_HULL_VERSION: i64 = -2715301031560262655;
 pub const B3_MESH_VERSION: i64 = -6066037853393090451;
 pub const B3_HEIGHT_FIELD_HOLE: u32 = 255;
 pub const B3_HEIGHT_FIELD_VERSION: i64 = -8423759003537458044;
-pub const B3_COMPOUND_VERSION: u64 = 2773332450517351837;
+pub const B3_COMPOUND_VERSION: u64 = 6012353156626885901;
 pub const B3_MAX_COMPOUND_MESH_MATERIALS: u32 = 4;
 #[doc = " Prototype for user allocation function.\n\t@param size the allocation size in bytes\n\t@param alignment the required alignment, guaranteed to be a power of 2"]
 pub type b3AllocFcn = ::std::option::Option<
@@ -734,6 +736,8 @@ pub struct b3SurfaceMaterial {
     pub userMaterialId: u64,
     #[doc = " Custom debug draw color. Ignored if 0. The low 24 bits are RGB. The high byte may\n carry a b3DebugMaterial preset, see b3MakeDebugColor.\n @see b3HexColor"]
     pub customColor: u32,
+    #[doc = " Explicit padding. Must be zero."]
+    pub padding: u32,
 }
 unsafe extern "C" {
     #[doc = " Use this to initialize your surface material\n @ingroup shape"]
@@ -779,7 +783,7 @@ pub struct b3ShapeDef {
     pub enableCustomFiltering: bool,
     #[doc = " A sensor shape generates overlap events but never generates a collision response.\n Sensors do not have continuous collision. Instead, use a ray or shape cast for those scenarios.\n Sensors still contribute to the body mass if they have non-zero density.\n @note Sensor events are disabled by default.\n @see enableSensorEvents"]
     pub isSensor: bool,
-    #[doc = " Enable sensor events for this shape. This applies to sensors and non-sensors. False by default, even for sensors."]
+    #[doc = " Enable sensor events for this shape. This applies to sensors and non-sensors. False by default, even for sensors.\n Only convex shapes may act as sensor visitors."]
     pub enableSensorEvents: bool,
     #[doc = " Enable contact events for this shape. Only applies to kinematic and dynamic bodies. Ignored for sensors. False by default."]
     pub enableContactEvents: bool,
@@ -1847,7 +1851,7 @@ pub struct b3Capsule {
     #[doc = " The radius of the hemispheres"]
     pub radius: f32,
 }
-#[doc = " A hull vertex. Identified by a half-edge with this\n vertex as its tail."]
+#[doc = " A hull vertex. Identified by a half-edge with this vertex as its tail."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3HullVertex {
@@ -1908,10 +1912,14 @@ pub struct b3HullData {
     pub edgeOffset: ::std::os::raw::c_int,
     #[doc = " The face count. Hulls faces are convex polygons."]
     pub faceCount: ::std::os::raw::c_int,
-    #[doc = " Offset of the face array in bytes from the struct address."]
-    pub faceOffset: ::std::os::raw::c_int,
     #[doc = " Offset of the face plane array in bytes from the struct address."]
     pub planeOffset: ::std::os::raw::c_int,
+    #[doc = " Offset of the face array in bytes from the struct address."]
+    pub faceOffset: ::std::os::raw::c_int,
+    #[doc = " Offset of structure of array (SOA) vertices"]
+    pub soaVertexOffset: ::std::os::raw::c_int,
+    #[doc = " Offset of structure of array (SOA) unit normal vectors"]
+    pub soaNormalOffset: ::std::os::raw::c_int,
     #[doc = " Explicit padding. Hull identity is a content hash and memcmp over raw bytes,\n so there must be no unnamed padding for struct copies to scramble."]
     pub padding: ::std::os::raw::c_int,
 }
@@ -1927,20 +1935,32 @@ pub struct b3BoxHull {
     pub boxPoints: [b3Vec3; 8usize],
     #[doc = "< Box half-edges."]
     pub boxEdges: [b3HullHalfEdge; 24usize],
+    #[doc = "< Box face planes."]
+    pub boxPlanes: [b3Plane; 6usize],
     #[doc = "< Box faces."]
     pub boxFaces: [b3HullFace; 6usize],
     #[doc = "< Explicit padding, see b3HullData::padding."]
-    pub padding: [u8; 2usize],
-    #[doc = "< Box face planes."]
-    pub boxPlanes: [b3Plane; 6usize],
+    pub padding: [u8; 10usize],
+    #[doc = "< vertex x"]
+    pub vx: [f32; 8usize],
+    #[doc = "< vertex y"]
+    pub vy: [f32; 8usize],
+    #[doc = "< vertex z"]
+    pub vz: [f32; 8usize],
+    #[doc = "< normal x, padded to multiple of 4"]
+    pub nx: [f32; 8usize],
+    #[doc = "< normal y, padded to multiple of 4"]
+    pub ny: [f32; 8usize],
+    #[doc = "< normal z, padded to multiple of 4"]
+    pub nz: [f32; 8usize],
 }
-#[doc = " This is used to create a re-usable collision mesh"]
+#[doc = " This is used to create a re-usable collision mesh."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3MeshDef {
     #[doc = " Triangle vertices"]
     pub vertices: *mut b3Vec3,
-    #[doc = " Triangle vertex indices. 3 for each triangle."]
+    #[doc = " Triangle vertex indices. 3 for each triangle. CCW winding."]
     pub indices: *mut i32,
     #[doc = " Triangle material index. 1 per triangle. Indexes into b3ShapeDef::materials.\n This allows different run-time material data to be associated with different\n instances of this mesh."]
     pub materialIndices: *mut u8,
@@ -2786,14 +2806,14 @@ pub union b3DebugShape__bindgen_ty_1 {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3DebugDraw {
-    #[doc = " Draws a shape and returns true if drawing should continue"]
+    #[doc = " Draws a user shape. The userShape pointer is owned by the application and is known to Box3D as\n an opaque pointer returned from b3CreateDebugShapeCallback. When this is called the drawn shape has\n passed a culling test against drawingBounds below."]
     pub DrawShapeFcn: ::std::option::Option<
         unsafe extern "C" fn(
             userShape: *mut ::std::os::raw::c_void,
             transform: b3WorldTransform,
             color: b3HexColor,
             context: *mut ::std::os::raw::c_void,
-        ) -> bool,
+        ),
     >,
     #[doc = " Draw a line segment."]
     pub DrawSegmentFcn: ::std::option::Option<
@@ -2883,7 +2903,7 @@ pub struct b3DebugDraw {
     #[doc = " Option to draw contact points"]
     pub drawContacts: bool,
     #[doc = " Draw contact anchor A or B"]
-    pub drawAnchorA: ::std::os::raw::c_int,
+    pub drawAnchorA: bool,
     #[doc = " Option to visualize the graph coloring used for contacts and joints"]
     pub drawGraphColors: bool,
     #[doc = " Option to draw contact features"]
@@ -2965,7 +2985,7 @@ unsafe extern "C" {
     ) -> b3TreeStats;
 }
 unsafe extern "C" {
-    #[doc = " Query an AABB for the closest object. The callback function is called for each proxy that might be closest to the supplied point.\n @param tree the dynamic tree to query\n @param point the query point\n @param maskBits nodes are skipped if the bit-wise AND with the node category bits is zero\n @param requireAllBits nodes are skipped if the bit-wise AND with the node category bits does not equal the maskBits\n @param callback a user provided instance of b3TreeQueryClosestCallbackFcn\n @param context a user context object that is provided to the callback\n @param minDistanceSqr the initial and final minimum squared distance. Provide a small initial to restrict the search and\n improve performance. If the value is large this query has performance that scales linearly with the number of proxies and\n would be slower than a brute force search.\n\t@return performance data"]
+    #[doc = " Query an AABB for the closest object. The callback function is called for each proxy that might be closest to the supplied\n point.\n @param tree the dynamic tree to query\n @param point the query point\n @param maskBits nodes are skipped if the bit-wise AND with the node category bits is zero\n @param requireAllBits nodes are skipped if the bit-wise AND with the node category bits does not equal the maskBits\n @param callback a user provided instance of b3TreeQueryClosestCallbackFcn\n @param context a user context object that is provided to the callback\n @param minDistanceSqr the initial and final minimum squared distance. Provide a small initial to restrict the search and\n improve performance. If the value is large this query has performance that scales linearly with the number of proxies and\n would be slower than a brute force search.\n\t@return performance data"]
     pub fn b3DynamicTree_QueryClosest(
         tree: *const b3DynamicTree,
         point: b3Vec3,
@@ -3040,7 +3060,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Load a file for debugging"]
     pub fn b3DynamicTree_Load(fileName: *const ::std::os::raw::c_char, scale: f32)
-        -> b3DynamicTree;
+    -> b3DynamicTree;
 }
 unsafe extern "C" {
     #[doc = " Create a tessellated cylinder as a hull."]
@@ -3103,7 +3123,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Make a transformed box as a hull. Do not call b3DestroyHull on this.\n @param hx, hy, hz positive half widths\n @param transform local transform of box"]
     pub fn b3MakeTransformedBoxHull(hx: f32, hy: f32, hz: f32, transform: b3Transform)
-        -> b3BoxHull;
+    -> b3BoxHull;
 }
 unsafe extern "C" {
     #[doc = " This makes a transformed box hull with post scaling. This is useful for boxes that are scaled in\n a level editor. Such scaling can have reflection and shear. In the case of shear the result\n may be approximate. If you need to support shear consider using b3CreateHull.\n Do not call b3DestroyHull on this.\n @param halfWidths positive half widths\n @param transform local transform of box\n @param postScale scale applied after the transform, may be negative"]
@@ -3278,11 +3298,11 @@ unsafe extern "C" {
     pub fn b3DestroyCompound(compound: *mut b3CompoundData);
 }
 unsafe extern "C" {
-    #[doc = " If bytes is null then this returns the number of required bytes. This clones all the\n data into the bytes buffer. This is expected to run offline or asynchronously.\n This mutates the compound to nullify pointers, leaving the compound in an unusable state."]
+    #[doc = " Cast the provided compound data to bytes, setting the internal pointers to null.\n Use this before serializing the compound bytes."]
     pub fn b3ConvertCompoundToBytes(compound: *mut b3CompoundData) -> *mut u8;
 }
 unsafe extern "C" {
-    #[doc = " Convert bytes to compound. This does not clone. The bytes must remain in scope while the\n compound is used. This is done to improve run-time performance and allow for instancing.\n The bytes are mutated to fixup pointers."]
+    #[doc = " Cast the provided bytes to compound data, setting up internal pointers.\n Use this after de-serializing the compound bytes."]
     pub fn b3ConvertBytesToCompound(
         bytes: *mut u8,
         byteCount: ::std::os::raw::c_int,
@@ -3572,36 +3592,36 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
-    #[doc = " Collide a capsule and a triangle."]
-    pub fn b3CollideCapsuleAndTriangle(
+    #[doc = " Collide a triangle and capsule. Normal points from triangle to capsule."]
+    pub fn b3CollideTriangleAndCapsule(
         manifold: *mut b3LocalManifold,
         capacity: ::std::os::raw::c_int,
-        capsuleA: *const b3Capsule,
-        triangleB: *const b3Vec3,
+        triangleA: *const b3Vec3,
+        capsuleB: *const b3Capsule,
         cache: *mut b3SimplexCache,
     );
 }
 unsafe extern "C" {
-    #[doc = " Collide a hull and a triangle."]
-    pub fn b3CollideHullAndTriangle(
+    #[doc = " Collide a triangle and hull. Normal points from triangle to hull."]
+    pub fn b3CollideTriangleAndHull(
         manifold: *mut b3LocalManifold,
         capacity: ::std::os::raw::c_int,
-        hullA: *const b3HullData,
         v1: b3Vec3,
         v2: b3Vec3,
         v3: b3Vec3,
         triangleFlags: ::std::os::raw::c_int,
+        hullB: *const b3HullData,
         cache: *mut b3SATCache,
         enableSpeculative: bool,
     );
 }
 unsafe extern "C" {
-    #[doc = " Collide a sphere and a triangle."]
-    pub fn b3CollideSphereAndTriangle(
+    #[doc = " Collide a triangle and sphere. Normal points from triangle to sphere."]
+    pub fn b3CollideTriangleAndSphere(
         manifold: *mut b3LocalManifold,
         capacity: ::std::os::raw::c_int,
-        sphereA: *const b3Sphere,
-        triangleB: *const b3Vec3,
+        triangleA: *const b3Vec3,
+        sphereB: *const b3Sphere,
     );
 }
 unsafe extern "C" {
@@ -3744,25 +3764,6 @@ unsafe extern "C" {
         translation: b3Vec3,
         filter: b3QueryFilter,
     ) -> b3RayResult;
-}
-unsafe extern "C" {
-    #[doc = " Serialize a world into a freshly allocated, self-contained buffer.\n Returns NULL on failure; the caller frees it with b3FreeSaveState."]
-    pub fn b3World_SaveState(
-        worldId: b3WorldId,
-        size: *mut ::std::os::raw::c_int,
-    ) -> *mut u8;
-}
-unsafe extern "C" {
-    #[doc = " Release a buffer returned by b3World_SaveState."]
-    pub fn b3FreeSaveState(data: *mut u8, size: ::std::os::raw::c_int);
-}
-unsafe extern "C" {
-    #[doc = " Overwrite a world with a saved image. Returns false if incompatible."]
-    pub fn b3World_LoadState(
-        worldId: b3WorldId,
-        data: *const u8,
-        size: ::std::os::raw::c_int,
-    ) -> bool;
 }
 unsafe extern "C" {
     #[doc = " Cast a shape through the world. Similar to a cast ray except that a shape is cast instead of a point.\n The proxy points are relative to the origin and the hit points come back as world positions, so the\n cast stays precise far from the world origin.\n\t@see b3World_CastRay"]
@@ -3947,6 +3948,22 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " This is for internal testing"]
     pub fn b3World_EnableSpeculative(worldId: b3WorldId, flag: bool);
+}
+unsafe extern "C" {
+    #[doc = " Serialize `worldId` into a freshly allocated buffer. Returns NULL on failure.\n The caller owns the result and must release it with b3FreeSaveState.\n `size` receives the byte count."]
+    pub fn b3World_SaveState(worldId: b3WorldId, size: *mut ::std::os::raw::c_int) -> *mut u8;
+}
+unsafe extern "C" {
+    #[doc = " Release a buffer returned by b3World_SaveState."]
+    pub fn b3FreeSaveState(data: *mut u8, size: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    #[doc = " Overwrite `worldId` with the state in `[data, size)`. The target must be a\n world created with the same definition (a \"shell\"); its existing contents are\n discarded. Returns false on a corrupt or incompatible image."]
+    pub fn b3World_LoadState(
+        worldId: b3WorldId,
+        data: *const u8,
+        size: ::std::os::raw::c_int,
+    ) -> bool;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -4229,23 +4246,23 @@ unsafe extern "C" {
     pub fn b3Body_GetTransform(bodyId: b3BodyId) -> b3WorldTransform;
 }
 unsafe extern "C" {
-    #[doc = " Set the world transform of a body. This acts as a teleport and is fairly expensive.\n @note Generally you should create a body with the intended transform.\n @see b3BodyDef::position and b3BodyDef::rotation"]
+    #[doc = " Set the world transform of a body. This acts as a teleport and is fairly expensive.\n @note Generally you should create a body with the intended transform.\n @see b3BodyDef::position and b3BodyDef::rotation."]
     pub fn b3Body_SetTransform(bodyId: b3BodyId, position: b3Pos, rotation: b3Quat);
 }
 unsafe extern "C" {
-    #[doc = " Get a local point on a body given a world point"]
+    #[doc = " Get a local point on a body given a world point."]
     pub fn b3Body_GetLocalPoint(bodyId: b3BodyId, worldPoint: b3Pos) -> b3Vec3;
 }
 unsafe extern "C" {
-    #[doc = " Get a world point on a body given a local point"]
+    #[doc = " Get a world point on a body given a local point."]
     pub fn b3Body_GetWorldPoint(bodyId: b3BodyId, localPoint: b3Vec3) -> b3Pos;
 }
 unsafe extern "C" {
-    #[doc = " Get a local vector on a body given a world vector"]
+    #[doc = " Get a local vector on a body given a world vector."]
     pub fn b3Body_GetLocalVector(bodyId: b3BodyId, worldVector: b3Vec3) -> b3Vec3;
 }
 unsafe extern "C" {
-    #[doc = " Get a world vector on a body given a local vector"]
+    #[doc = " Get a world vector on a body given a local vector."]
     pub fn b3Body_GetWorldVector(bodyId: b3BodyId, localVector: b3Vec3) -> b3Vec3;
 }
 unsafe extern "C" {
@@ -4253,15 +4270,15 @@ unsafe extern "C" {
     pub fn b3Body_GetLinearVelocity(bodyId: b3BodyId) -> b3Vec3;
 }
 unsafe extern "C" {
-    #[doc = " Get the angular velocity of a body in radians per second"]
+    #[doc = " Get the angular velocity of a body in radians per second."]
     pub fn b3Body_GetAngularVelocity(bodyId: b3BodyId) -> b3Vec3;
 }
 unsafe extern "C" {
-    #[doc = " Set the linear velocity of a body. Usually in meters per second."]
+    #[doc = " Set the linear velocity of a body at the center of mass. Usually in meters per second."]
     pub fn b3Body_SetLinearVelocity(bodyId: b3BodyId, linearVelocity: b3Vec3);
 }
 unsafe extern "C" {
-    #[doc = " Set the angular velocity of a body in radians per second"]
+    #[doc = " Set the angular velocity of a body in radians per second."]
     pub fn b3Body_SetAngularVelocity(bodyId: b3BodyId, angularVelocity: b3Vec3);
 }
 unsafe extern "C" {
@@ -4416,6 +4433,14 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Is this body a bullet?"]
     pub fn b3Body_IsBullet(bodyId: b3BodyId) -> bool;
+}
+unsafe extern "C" {
+    #[doc = " Allow this body to rotate fast. Useful for axially symmetric bodies, such as vehicle wheels.\n Normally rotation speed is clamped to improve CCD. However, this clamping is unnecessary for\n bodies that only rotate fast around an axis of symmetry."]
+    pub fn b3Body_AllowFastRotation(bodyId: b3BodyId, flag: bool);
+}
+unsafe extern "C" {
+    #[doc = " Is this body allowed to rotate fast?"]
+    pub fn b3Body_IsFastRotationAllowed(bodyId: b3BodyId) -> bool;
 }
 unsafe extern "C" {
     #[doc = " Enable or disable contact recycling for this body. Contact recycling is a performance optimization\n that reuses contact manifolds when bodies move slightly. Disabling it can avoid ghost collisions\n on characters at the cost of higher per-step work. Existing contacts retain their prior setting;\n only contacts created after this call see the new value.\n @see b3BodyDef::enableContactRecycling"]
@@ -5131,7 +5156,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Create a prismatic (slider) joint.\n @see b3PrismaticJointDef for details"]
     pub fn b3CreatePrismaticJoint(worldId: b3WorldId, def: *const b3PrismaticJointDef)
-        -> b3JointId;
+    -> b3JointId;
 }
 unsafe extern "C" {
     #[doc = " Enable/disable the joint spring."]
@@ -5316,7 +5341,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Create a spherical joint\n @see b3SphericalJointDef for details"]
     pub fn b3CreateSphericalJoint(worldId: b3WorldId, def: *const b3SphericalJointDef)
-        -> b3JointId;
+    -> b3JointId;
 }
 unsafe extern "C" {
     #[doc = " Enable/disable the spherical joint cone limit"]

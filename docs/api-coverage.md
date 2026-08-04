@@ -14,10 +14,11 @@ The machine-checkable source is `boxddd/tests/fixtures/api_coverage_symbols.txt`
 
 ## Current Snapshot
 
-The current fixture classifies 588 unique `B3_API` functions in the vendored
+The current fixture classifies 590 unique `B3_API` functions in the vendored
 header, including the two world-contact snapshot extensions, the three
 standalone world save/load-state entry points, the four bulk body sleep-state
-and island sleep-census observers, and the broad-phase fat-AABB accessor:
+and island sleep-census observers, the broad-phase fat-AABB accessor, and the
+body fast-rotation opt-out pair that arrived with the `3fc20f5` vendor bump:
 
 | Status | Count | Typical areas |
 |---|---:|---|
@@ -25,7 +26,7 @@ and island sleep-census observers, and the broad-phase fat-AABB accessor:
 save/load state, shape names, deterministic math helpers, core math/value validation |
 | `raw` | 31 | allocator/assert/log hooks, timers/sleep/hash, dump helpers, explicit `boxddd::raw` user data and process-global scalar tuning, file-backed dynamic tree or height-field helpers, native recording save helper, low-level debug graph color helper |
 | `omitted` | 5 | global world-count diagnostics and redundant body/shape/joint world-handle getters that do not fit the safe ownership model |
-| `deferred` | 0 | no current upstream `B3_API` symbols remain in the deferred bucket |
+| `deferred` | 2 | body fast-rotation opt-out (`b3Body_AllowFastRotation` and its paired getter), new in the Box3D `3fc20f5` bump and not yet exposed on the safe `Body` type |
 
 Counts are intentionally checked by tests instead of maintained only in prose. When the fixture changes, update this snapshot in the same commit.
 

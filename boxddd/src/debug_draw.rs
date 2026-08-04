@@ -441,8 +441,9 @@ pub struct DebugDrawOptions {
     pub draw_body_names: bool,
     /// Whether contacts are drawn.
     pub draw_contacts: bool,
-    /// Anchor display mode used by Box3D.
-    pub draw_anchor_a: i32,
+    /// Draw contact anchor A rather than B. Was an `i32` mode before Box3D
+    /// `3fc20f5`, where upstream retyped `drawAnchorA` to `bool`.
+    pub draw_anchor_a: bool,
     /// Whether graph-color debug coloring is drawn.
     pub draw_graph_colors: bool,
     /// Whether contact feature ids are drawn.
@@ -472,7 +473,7 @@ impl Default for DebugDrawOptions {
             draw_mass: false,
             draw_body_names: false,
             draw_contacts: false,
-            draw_anchor_a: 0,
+            draw_anchor_a: false,
             draw_graph_colors: false,
             draw_contact_features: false,
             draw_contact_normals: false,
@@ -1701,7 +1702,14 @@ unsafe extern "C" fn draw_shape(
     transform: ffi::b3WorldTransform,
     color: ffi::b3HexColor,
     context: *mut c_void,
-) -> bool {
+) {
+    // Box3D made DrawShapeFcn return void; it previously returned bool and this
+    // wrapper returned `!context.panicked` to tell the engine to stop calling
+    // back after a Rust drawer panicked. That early-abort channel no longer
+    // exists, so draw_shape now matches its sibling callbacks: the panic is
+    // still caught and recorded on `context.panicked`, and is observed after
+    // the draw call returns, but the remaining shapes in THIS call are still
+    // visited. Panic safety is unchanged; only the early exit is lost.
     let context = unsafe { &mut *(context as *mut DebugDrawContext<'_>) };
     run_debug_draw_callback(context, (), |drawer| {
         drawer.draw_shape(
@@ -1710,7 +1718,6 @@ unsafe extern "C" fn draw_shape(
             HexColor::from_ffi(color),
         );
     });
-    !context.panicked
 }
 
 unsafe extern "C" fn draw_segment(

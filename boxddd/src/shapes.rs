@@ -68,6 +68,10 @@ impl SurfaceMaterial {
             tangentVelocity: self.tangent_velocity.into_raw(),
             userMaterialId: self.user_material_id,
             customColor: self.custom_color,
+            // Box3D added explicit padding to b3SurfaceMaterial and documents
+            // it as "must be zero"; it is not a user-settable field, so it is
+            // not exposed on the safe type.
+            padding: 0,
         }
     }
 

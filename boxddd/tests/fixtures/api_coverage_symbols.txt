@@ -160,6 +160,8 @@ b3Body_IsAwake|safe|body|box3d.h|covered by current safe wrapper implementation
 b3Body_SetAwake|safe|body|box3d.h|covered by current safe wrapper implementation
 b3Body_EnableSleep|safe|body|box3d.h|covered by current safe wrapper implementation
 b3Body_IsSleepEnabled|safe|body|box3d.h|covered by current safe wrapper implementation
+b3Body_AllowFastRotation|deferred|body|box3d.h|new in Box3D 3fc20f5; fast-rotation opt-out not yet exposed on the safe Body type
+b3Body_IsFastRotationAllowed|deferred|body|box3d.h|new in Box3D 3fc20f5; paired getter, deferred with its setter
 b3Body_SetSleepThreshold|safe|body|box3d.h|covered by current safe wrapper implementation
 b3Body_GetSleepThreshold|safe|body|box3d.h|covered by current safe wrapper implementation
 b3Body_IsEnabled|safe|body|box3d.h|covered by current safe wrapper implementation
@@ -540,9 +542,9 @@ b3CollideHullAndSphere|safe|collision|collision.h|covered by current safe wrappe
 b3CollideCapsules|safe|collision|collision.h|covered by current safe wrapper implementation
 b3CollideHullAndCapsule|safe|collision|collision.h|covered by current safe wrapper implementation
 b3CollideHulls|safe|collision|collision.h|covered by current safe wrapper implementation
-b3CollideCapsuleAndTriangle|safe|collision|collision.h|covered by current safe wrapper implementation
-b3CollideHullAndTriangle|safe|collision|collision.h|covered by current safe wrapper implementation
-b3CollideSphereAndTriangle|safe|collision|collision.h|covered by current safe wrapper implementation
+b3CollideTriangleAndCapsule|safe|collision|collision.h|covered by current safe wrapper implementation
+b3CollideTriangleAndHull|safe|collision|collision.h|covered by current safe wrapper implementation
+b3CollideTriangleAndSphere|safe|collision|collision.h|covered by current safe wrapper implementation
 b3SolvePlanes|safe|collision|collision.h|covered by current safe wrapper implementation
 b3ClipVector|safe|collision|collision.h|covered by current safe wrapper implementation
 b3SetLengthUnitsPerMeter|raw|globals|constants.h|explicit boxddd::raw process-global tuning boundary
