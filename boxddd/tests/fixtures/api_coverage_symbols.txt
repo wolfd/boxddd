@@ -236,6 +236,7 @@ b3Shape_GetContactData|safe|shape|box3d.h|covered by current safe wrapper implem
 b3Shape_GetSensorCapacity|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetSensorData|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetAABB|safe|shape|box3d.h|covered by current safe wrapper implementation
+b3Shape_GetFatAABB|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_ComputeMassData|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetClosestPoint|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_ApplyWind|safe|shape|box3d.h|covered by current safe wrapper implementation

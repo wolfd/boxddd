@@ -14,14 +14,14 @@ The machine-checkable source is `boxddd/tests/fixtures/api_coverage_symbols.txt`
 
 ## Current Snapshot
 
-The current fixture classifies 587 unique `B3_API` functions in the vendored
+The current fixture classifies 588 unique `B3_API` functions in the vendored
 header, including the two world-contact snapshot extensions, the three
-standalone world save/load-state entry points, and the four bulk body
-sleep-state and island sleep-census observers:
+standalone world save/load-state entry points, the four bulk body sleep-state
+and island sleep-census observers, and the broad-phase fat-AABB accessor:
 
 | Status | Count | Typical areas |
 |---|---:|---|
-| `safe` | 551 | world lifecycle and stepping, body runtime, body/shape scoped queries, dynamic tree, mover collision, explosions, shape creation and runtime introspection, compound/mesh/height-field authoring, query, byte ownership transfer, and readback, shape event/contact/sensor readback, body- and world-contact data, hull cloning and box scaling, advanced standalone collision, joints, events, world queries, debug draw, recording/replay incl. sub-step scrubbing, safe recording load, standalone world
+| `safe` | 552 | world lifecycle and stepping, body runtime, body/shape scoped queries, dynamic tree, mover collision, explosions, shape creation and runtime introspection, compound/mesh/height-field authoring, query, byte ownership transfer, and readback, shape event/contact/sensor readback, body- and world-contact data, hull cloning and box scaling, advanced standalone collision, joints, events, world queries, debug draw, recording/replay incl. sub-step scrubbing, safe recording load, standalone world
 save/load state, shape names, deterministic math helpers, core math/value validation |
 | `raw` | 31 | allocator/assert/log hooks, timers/sleep/hash, dump helpers, explicit `boxddd::raw` user data and process-global scalar tuning, file-backed dynamic tree or height-field helpers, native recording save helper, low-level debug graph color helper |
 | `omitted` | 5 | global world-count diagnostics and redundant body/shape/joint world-handle getters that do not fit the safe ownership model |
@@ -29,7 +29,7 @@ save/load state, shape names, deterministic math helpers, core math/value valida
 
 Counts are intentionally checked by tests instead of maintained only in prose. When the fixture changes, update this snapshot in the same commit.
 
-Safe wrapper coverage is 551 of 587 public `B3_API` symbols, or about 94%.
+Safe wrapper coverage is 552 of 588 public `B3_API` symbols, or about 94%.
 The remaining 36 symbols are not unplanned API gaps: they are classified as
 explicit raw interop or intentionally omitted from the safe ownership model.
 

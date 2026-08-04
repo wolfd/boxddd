@@ -1786,6 +1786,18 @@ b3AABB b3Shape_GetAABB( b3ShapeId shapeId )
 	return shape->aabb;
 }
 
+b3AABB b3Shape_GetFatAABB( b3ShapeId shapeId )
+{
+	b3World* world = b3GetWorld( shapeId.world0 );
+	if ( world == NULL )
+	{
+		return (b3AABB){ 0 };
+	}
+
+	b3Shape* shape = b3GetShape( world, shapeId );
+	return shape->fatAABB;
+}
+
 b3MassData b3Shape_ComputeMassData( b3ShapeId shapeId )
 {
 	b3World* world = b3GetWorld( shapeId.world0 );

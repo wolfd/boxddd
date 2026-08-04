@@ -4786,6 +4786,10 @@ unsafe extern "C" {
     pub fn b3Shape_GetAABB(shapeId: b3ShapeId) -> b3AABB;
 }
 unsafe extern "C" {
+    #[doc = " Get the enlarged (fat) world AABB the broad-phase proxy is stored with.\n This always contains b3Shape_GetAABB and is the bound the broad-phase tree\n tests overlap queries against, so a query that reports this shape can be\n re-tested against a narrower AABB without consulting the tree again."]
+    pub fn b3Shape_GetFatAABB(shapeId: b3ShapeId) -> b3AABB;
+}
+unsafe extern "C" {
     #[doc = " Compute the mass data for a shape"]
     pub fn b3Shape_ComputeMassData(shapeId: b3ShapeId) -> b3MassData;
 }

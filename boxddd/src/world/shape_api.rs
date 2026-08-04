@@ -257,6 +257,21 @@ impl World {
         }))
     }
 
+    /// Tries to return the shape's enlarged (fat) world-space AABB — the bound
+    /// its broad-phase proxy is stored with.
+    ///
+    /// This always contains [`Self::try_shape_aabb`], and it is the AABB the
+    /// broad-phase tree tests overlap queries against. A caller that issues one
+    /// widened overlap query and then re-tests each reported shape against a
+    /// narrower AABB must use THIS bound to reproduce the tree's own leaf test;
+    /// the tight AABB would under-select.
+    pub fn try_shape_fat_aabb(&self, shape_id: ShapeId) -> Result<Aabb> {
+        let _guard = self.lock_shape_checked(shape_id)?;
+        Ok(Aabb::from_raw(unsafe {
+            ffi::b3Shape_GetFatAABB(shape_id.into_raw())
+        }))
+    }
+
     /// Tries to ray cast against a single shape.
     pub fn try_shape_cast_ray(
         &self,

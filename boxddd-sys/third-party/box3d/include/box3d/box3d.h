@@ -1043,6 +1043,12 @@ B3_API int b3Shape_GetSensorData( b3ShapeId shapeId, b3ShapeId* visitorIds, int 
 /// Get the current world AABB
 B3_API b3AABB b3Shape_GetAABB( b3ShapeId shapeId );
 
+/// Get the enlarged (fat) world AABB the broad-phase proxy is stored with.
+/// This always contains b3Shape_GetAABB and is the bound the broad-phase tree
+/// tests overlap queries against, so a query that reports this shape can be
+/// re-tested against a narrower AABB without consulting the tree again.
+B3_API b3AABB b3Shape_GetFatAABB( b3ShapeId shapeId );
+
 /// Compute the mass data for a shape
 B3_API b3MassData b3Shape_ComputeMassData( b3ShapeId shapeId );
 
