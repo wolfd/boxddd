@@ -166,11 +166,11 @@ pub const B3_MAX_SHAPES: u32 = 4194304;
 pub const B3_MAX_CHILD_SHAPES: u32 = 1048576;
 pub const B3_RESTITUTION_ITERATIONS: u32 = 1;
 pub const B3_DYNAMIC_TREE_VERSION: i64 = -7787375179321898166;
-pub const B3_HULL_VERSION: i64 = -2715301031560262655;
-pub const B3_MESH_VERSION: i64 = -6066037853393090451;
+pub const B3_HULL_VERSION: u64 = 5353818467820062812;
+pub const B3_MESH_VERSION: i64 = -6148651537399239945;
 pub const B3_HEIGHT_FIELD_HOLE: u32 = 255;
-pub const B3_HEIGHT_FIELD_VERSION: i64 = -8423759003537458044;
-pub const B3_COMPOUND_VERSION: u64 = 6012353156626885901;
+pub const B3_HEIGHT_FIELD_VERSION: i64 = -8196016980499085064;
+pub const B3_COMPOUND_VERSION: i64 = -4460975412889416758;
 pub const B3_MAX_COMPOUND_MESH_MATERIALS: u32 = 4;
 #[doc = " Prototype for user allocation function.\n\t@param size the allocation size in bytes\n\t@param alignment the required alignment, guaranteed to be a power of 2"]
 pub type b3AllocFcn = ::std::option::Option<
@@ -1854,10 +1854,8 @@ pub struct b3HullFace {
 pub struct b3HullData {
     #[doc = " Version must be first and match B3_HULL_VERSION"]
     pub version: u64,
-    #[doc = " The total number of bytes for this hull."]
-    pub byteCount: ::std::os::raw::c_int,
     #[doc = " Hash of this hull (this field is zero when the hash is computed)."]
-    pub hash: u32,
+    pub hash: u64,
     #[doc = " Axis-aligned box in local space."]
     pub aabb: b3AABB,
     #[doc = " Surface area, typically in squared meters."]
@@ -1871,27 +1869,27 @@ pub struct b3HullData {
     #[doc = " The inertia tensor about the centroid."]
     pub centralInertia: b3Matrix3,
     #[doc = " The vertex count."]
-    pub vertexCount: ::std::os::raw::c_int,
+    pub vertexCount: i32,
     #[doc = " Offset of the vertex array in bytes from the struct address."]
-    pub vertexOffset: ::std::os::raw::c_int,
+    pub vertexOffset: i32,
     #[doc = " Offset of the point array in bytes from the struct address."]
-    pub pointOffset: ::std::os::raw::c_int,
+    pub pointOffset: i32,
     #[doc = " This is the half-edge count (double the edge count)"]
-    pub edgeCount: ::std::os::raw::c_int,
+    pub edgeCount: i32,
     #[doc = " Offset of the edge array in bytes from the struct address."]
-    pub edgeOffset: ::std::os::raw::c_int,
+    pub edgeOffset: i32,
     #[doc = " The face count. Hulls faces are convex polygons."]
-    pub faceCount: ::std::os::raw::c_int,
+    pub faceCount: i32,
     #[doc = " Offset of the face plane array in bytes from the struct address."]
-    pub planeOffset: ::std::os::raw::c_int,
+    pub planeOffset: i32,
     #[doc = " Offset of the face array in bytes from the struct address."]
-    pub faceOffset: ::std::os::raw::c_int,
+    pub faceOffset: i32,
     #[doc = " Offset of structure of array (SOA) vertices"]
-    pub soaVertexOffset: ::std::os::raw::c_int,
+    pub soaVertexOffset: i32,
     #[doc = " Offset of structure of array (SOA) unit normal vectors"]
-    pub soaNormalOffset: ::std::os::raw::c_int,
-    #[doc = " Explicit padding. Hull identity is a content hash and memcmp over raw bytes,\n so there must be no unnamed padding for struct copies to scramble."]
-    pub padding: ::std::os::raw::c_int,
+    pub soaNormalOffset: i32,
+    #[doc = " The total number of bytes for this hull."]
+    pub byteCount: i32,
 }
 #[doc = " Efficient box hull"]
 #[repr(C)]
@@ -1909,8 +1907,8 @@ pub struct b3BoxHull {
     pub boxPlanes: [b3Plane; 6usize],
     #[doc = "< Box faces."]
     pub boxFaces: [b3HullFace; 6usize],
-    #[doc = "< Explicit padding, see b3HullData::padding."]
-    pub padding: [u8; 10usize],
+    #[doc = "< Explicit padding."]
+    pub padding: [u8; 2usize],
     #[doc = "< vertex x"]
     pub vx: [f32; 8usize],
     #[doc = "< vertex y"]
@@ -1924,11 +1922,11 @@ pub struct b3BoxHull {
     #[doc = "< normal z, padded to multiple of 4"]
     pub nz: [f32; 8usize],
 }
-#[doc = " This is used to create a re-usable collision mesh."]
+#[doc = " This is used to create a re-usable collision mesh. No pointers\n are held to this data in b3MeshData. So all this data can be temporary."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3MeshDef {
-    #[doc = " Triangle vertices"]
+    #[doc = " Triangle vertices."]
     pub vertices: *mut b3Vec3,
     #[doc = " Triangle vertex indices. 3 for each triangle. CCW winding."]
     pub indices: *mut i32,
@@ -2172,36 +2170,38 @@ impl b3MeshNode__bindgen_ty_1__bindgen_ty_2 {
 pub struct b3MeshData {
     #[doc = " Version must be first."]
     pub version: u64,
-    #[doc = " The total number of bytes for this mesh."]
-    pub byteCount: ::std::os::raw::c_int,
     #[doc = " Hash of this mesh (this field is zero when the hash is computed)"]
-    pub hash: u32,
+    pub hash: u64,
+    #[doc = " The total number of bytes for this mesh."]
+    pub byteCount: i32,
     #[doc = " Local axis-aligned box."]
     pub bounds: b3AABB,
     #[doc = " Combined surface area of all triangles. Single-sided."]
     pub surfaceArea: f32,
     #[doc = " The height of the bounding volume hierarchy."]
-    pub treeHeight: ::std::os::raw::c_int,
+    pub treeHeight: i32,
     #[doc = " The number of degenerate triangles. Diagnostic."]
-    pub degenerateCount: ::std::os::raw::c_int,
+    pub degenerateCount: i32,
     #[doc = " Offset of the node array in bytes from the struct address."]
-    pub nodeOffset: ::std::os::raw::c_int,
+    pub nodeOffset: i32,
     #[doc = " The number of BVH nodes."]
-    pub nodeCount: ::std::os::raw::c_int,
+    pub nodeCount: i32,
     #[doc = " Offset of the vertex array in bytes from the struct address."]
-    pub vertexOffset: ::std::os::raw::c_int,
+    pub vertexOffset: i32,
     #[doc = " The number of vertices."]
-    pub vertexCount: ::std::os::raw::c_int,
+    pub vertexCount: i32,
     #[doc = " Offset of the triangle array in bytes from the struct address."]
-    pub triangleOffset: ::std::os::raw::c_int,
+    pub triangleOffset: i32,
     #[doc = " The number of triangles."]
-    pub triangleCount: ::std::os::raw::c_int,
+    pub triangleCount: i32,
     #[doc = " Offset of the material array in bytes from the struct address."]
-    pub materialOffset: ::std::os::raw::c_int,
+    pub materialOffset: i32,
     #[doc = " The number of materials."]
-    pub materialCount: ::std::os::raw::c_int,
+    pub materialCount: i32,
     #[doc = " Offset of the triangle flag array in bytes from the struct address."]
-    pub flagsOffset: ::std::os::raw::c_int,
+    pub flagsOffset: i32,
+    #[doc = " Explicit padding."]
+    pub padding: i32,
 }
 #[doc = " This allows mesh data to be re-used with different scales."]
 #[repr(C)]
@@ -2212,7 +2212,7 @@ pub struct b3Mesh {
     #[doc = " This scale may be non-uniform and have negative components. However,\n no component may be very small in magnitude."]
     pub scale: b3Vec3,
 }
-#[doc = " Data used to create a height field"]
+#[doc = " Data used to create a height field. No pointers are held to this data."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3HeightFieldDef {
@@ -2239,10 +2239,10 @@ pub struct b3HeightFieldDef {
 pub struct b3HeightFieldData {
     #[doc = " Version must be first and match B3_HEIGHT_FIELD_VERSION"]
     pub version: u64,
+    #[doc = " Hash of this height field (this field is zero when the hash is computed)."]
+    pub hash: u64,
     #[doc = " The total number of bytes for this height field."]
     pub byteCount: ::std::os::raw::c_int,
-    #[doc = " Hash of this height field (this field is zero when the hash is computed)."]
-    pub hash: u32,
     #[doc = " The local axis-aligned bounding box."]
     pub aabb: b3AABB,
     #[doc = " The minimum y value."]
@@ -2254,19 +2254,19 @@ pub struct b3HeightFieldData {
     #[doc = " The overall scale."]
     pub scale: b3Vec3,
     #[doc = " The number of grid columns along the local x-axis."]
-    pub columnCount: ::std::os::raw::c_int,
+    pub columnCount: i32,
     #[doc = " The number of grid rows along the local z-axis."]
-    pub rowCount: ::std::os::raw::c_int,
+    pub rowCount: i32,
     #[doc = " Offset of the compressed height array in bytes from the struct address.\n uint16_t, one per grid point."]
-    pub heightsOffset: ::std::os::raw::c_int,
+    pub heightsOffset: i32,
     #[doc = " Offset of the material index array in bytes from the struct address.\n uint8_t, one per cell."]
-    pub materialOffset: ::std::os::raw::c_int,
+    pub materialOffset: i32,
     #[doc = " Offset of the flag array in bytes from the struct address.\n uint8_t, one per triangle."]
-    pub flagsOffset: ::std::os::raw::c_int,
+    pub flagsOffset: i32,
     #[doc = " Triangle winding."]
-    pub clockwise: bool,
-    #[doc = " Explicit padding. Identity is a content hash over raw bytes, so there must\n be no unnamed padding for struct copies to scramble."]
-    pub padding: [u8; 3usize],
+    pub clockwise: u8,
+    #[doc = " Explicit padding."]
+    pub padding: [u8; 7usize],
 }
 #[doc = " Definition for a capsule in a compound shape."]
 #[repr(C)]
@@ -4001,7 +4001,7 @@ pub struct b3RecPlayerInfo {
 }
 unsafe extern "C" {
     #[doc = " Create a player over a recording. Owns a private copy of the bytes.\n @param data pointer to recording bytes\n @param size byte count of the recording\n @param workerCount worker count for the replay world; pass 1 to match a serial recording.\n Replaying at a different count re-partitions the constraint graph, so the StateHash check\n becomes a cross-thread determinism test. Adjustable later with b3RecPlayer_SetWorkerCount.\n @return a new player, or NULL on bad header or deserialization failure"]
-    pub fn b3RecPlayer_Create(
+    pub fn b3CreatePlayer(
         data: *const ::std::os::raw::c_void,
         size: ::std::os::raw::c_int,
         workerCount: ::std::os::raw::c_int,
@@ -4009,7 +4009,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[doc = " Destroy the player and free all memory. Restores the previous global length scale."]
-    pub fn b3RecPlayer_Destroy(player: *mut b3RecPlayer);
+    pub fn b3DestroyPlayer(player: *mut b3RecPlayer);
 }
 unsafe extern "C" {
     #[doc = " Advance one frame. dispatch ops until the next Step completes.\n @return true when a frame was stepped, false at end-of-recording"]
@@ -4099,7 +4099,7 @@ unsafe extern "C" {
     ) -> b3BodyId;
 }
 unsafe extern "C" {
-    #[doc = " Wire host debug-shape callbacks into the player's replay world so a renderer can build\n per-shape draw resources (the 3D sample needs this or the replay world draws nothing).\n Rebuilds the current world under the new callbacks and rewinds to frame 0, so call it\n once right after b3RecPlayer_Create and re-read the world id afterward. The callbacks\n persist across Restart and backward seeks, which recreate the world internally.\n @param player the player to configure\n @param createDebugShape called when a replayed shape is added; returns a user draw handle\n @param destroyDebugShape called when a replayed shape is removed; may be NULL\n @param context user context passed to both callbacks"]
+    #[doc = " Wire host debug-shape callbacks into the player's replay world so a renderer can build\n per-shape draw resources (the 3D sample needs this or the replay world draws nothing).\n Rebuilds the current world under the new callbacks and rewinds to frame 0, so call it\n once right after b3CreatePlayer and re-read the world id afterward. The callbacks\n persist across Restart and backward seeks, which recreate the world internally.\n @param player the player to configure\n @param createDebugShape called when a replayed shape is added; returns a user draw handle\n @param destroyDebugShape called when a replayed shape is removed; may be NULL\n @param context user context passed to both callbacks"]
     pub fn b3RecPlayer_SetDebugShapeCallbacks(
         player: *mut b3RecPlayer,
         createDebugShape: b3CreateDebugShapeCallback,

@@ -92,7 +92,7 @@ world between steps, use the player handle. The player copies the bytes it is gi
 free the source buffer immediately after creating it.
 
 ```c
-b3RecPlayer* player = b3RecPlayer_Create( data, size, 1 );
+b3RecPlayer* player = b3CreatePlayer( data, size, 1 );
 b3WorldId worldId = b3RecPlayer_GetWorldId( player );
 
 while ( b3RecPlayer_StepFrame( player ) )
@@ -102,10 +102,10 @@ while ( b3RecPlayer_StepFrame( player ) )
 }
 
 b3RecPlayer_Restart( player );   // rewind to frame 0 in place; the world id stays the same
-b3RecPlayer_Destroy( player );
+b3DestroyPlayer( player );
 ```
 
-`b3RecPlayer_Create` returns `NULL` if the bytes are malformed or fail the layout gate (see the
+`b3CreatePlayer` returns `NULL` if the bytes are malformed or fail the layout gate (see the
 determinism contract below). `b3RecPlayer_IsAtEnd` reports when the recording is exhausted, and
 `b3RecPlayer_HasDiverged` reports whether a recorded state hash failed to reproduce.
 `b3RecPlayer_GetDivergeFrame` returns the first frame that diverged, or `-1`. Divergence is
@@ -126,7 +126,7 @@ the effective backward-seek granularity is reported by `b3RecPlayer_GetKeyframeI
 
 ### Worker count
 
-`b3RecPlayer_Create` takes a worker count for the replay world; pass `1` to match a serial
+`b3CreatePlayer` takes a worker count for the replay world; pass `1` to match a serial
 recording. `b3RecPlayer_SetWorkerCount` changes it on the live player and is reused whenever the
 player rebuilds its world on restart or a backward seek. Replaying at a different worker count
 than was recorded re-partitions the constraint graph, so the state-hash check becomes a
@@ -149,7 +149,7 @@ expose a standalone save-state / restore API.
 The player's replay world is created internally, so a renderer has no chance to build per-shape
 draw resources as shapes appear. `b3RecPlayer_SetDebugShapeCallbacks` wires host callbacks into
 the replay world for exactly that: one is called when a replayed shape is added (returning a user
-draw handle), one when it is removed. Call it once right after `b3RecPlayer_Create` and re-read
+draw handle), one when it is removed. Call it once right after `b3CreatePlayer` and re-read
 the world id afterward, since installing the callbacks rebuilds the world and rewinds to frame 0.
 The callbacks persist across restart and backward seeks. The 3D sample needs this or the replay
 world draws nothing.
@@ -175,7 +175,7 @@ your responsibility:
 
 - **Struct layout** is enforced. A recording opens by deserializing a snapshot, which is a raw
   struct image, so the reader's build must have identical struct layouts. The image carries a
-  layout hash and `b3RecPlayer_Create` / `b3ValidateReplay` reject a recording whose hash differs
+  layout hash and `b3CreatePlayer` / `b3ValidateReplay` reject a recording whose hash differs
   rather than producing a silently wrong replay. A recording therefore does not replay across a
   build whose internal layout changed, including a change in SIMD width.
 - **Pointer width**, **endianness**, and the format version are enforced the same way.

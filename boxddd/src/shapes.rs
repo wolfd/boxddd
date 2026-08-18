@@ -1597,7 +1597,7 @@ impl<'a> ShapeHull<'a> {
 
     #[inline]
     /// Returns Box3D's stable hash for the hull data.
-    pub const fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u64 {
         self.raw.hash
     }
 
@@ -1684,7 +1684,7 @@ impl<'a> ShapeMesh<'a> {
 
     #[inline]
     /// Returns Box3D's stable hash for the mesh data.
-    pub const fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u64 {
         self.data.hash
     }
 
@@ -1755,7 +1755,7 @@ impl<'a> ShapeHeightField<'a> {
 
     #[inline]
     /// Returns Box3D's stable hash for the height-field data.
-    pub const fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u64 {
         self.raw.hash
     }
 
@@ -1798,7 +1798,7 @@ impl<'a> ShapeHeightField<'a> {
     #[inline]
     /// Returns whether cells use clockwise triangle winding.
     pub const fn clockwise(&self) -> bool {
-        self.raw.clockwise
+        self.raw.clockwise != 0
     }
 }
 

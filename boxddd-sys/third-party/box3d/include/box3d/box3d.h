@@ -371,10 +371,10 @@ typedef struct b3RecPlayerInfo
 /// Replaying at a different count re-partitions the constraint graph, so the StateHash check
 /// becomes a cross-thread determinism test. Adjustable later with b3RecPlayer_SetWorkerCount.
 /// @return a new player, or NULL on bad header or deserialization failure
-B3_API b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount );
+B3_API b3RecPlayer* b3CreatePlayer( const void* data, int size, int workerCount );
 
 /// Destroy the player and free all memory. Restores the previous global length scale.
-B3_API void b3RecPlayer_Destroy( b3RecPlayer* player );
+B3_API void b3DestroyPlayer( b3RecPlayer* player );
 
 /// Advance one frame. dispatch ops until the next Step completes.
 /// @return true when a frame was stepped, false at end-of-recording
@@ -454,7 +454,7 @@ B3_API b3BodyId b3RecPlayer_GetBodyId( const b3RecPlayer* player, int index );
 /// Wire host debug-shape callbacks into the player's replay world so a renderer can build
 /// per-shape draw resources (the 3D sample needs this or the replay world draws nothing).
 /// Rebuilds the current world under the new callbacks and rewinds to frame 0, so call it
-/// once right after b3RecPlayer_Create and re-read the world id afterward. The callbacks
+/// once right after b3CreatePlayer and re-read the world id afterward. The callbacks
 /// persist across Restart and backward seeks, which recreate the world internally.
 /// @param player the player to configure
 /// @param createDebugShape called when a replayed shape is added; returns a user draw handle

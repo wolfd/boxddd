@@ -1446,12 +1446,12 @@ unsafe fn snapshot_height_field(
             let index12 = index11 + 1;
             let index21 = ((row + 1) * height_field.columnCount + column) as u32;
             let index22 = index21 + 1;
-            let first = if height_field.clockwise {
+            let first = if height_field.clockwise != 0 {
                 [index11, index12, index21]
             } else {
                 [index11, index21, index12]
             };
-            let second = if height_field.clockwise {
+            let second = if height_field.clockwise != 0 {
                 [index22, index21, index12]
             } else {
                 [index22, index12, index21]

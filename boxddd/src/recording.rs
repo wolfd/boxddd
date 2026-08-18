@@ -418,9 +418,8 @@ impl RecPlayer {
         validate_replay_input(bytes, worker_count)?;
         callback_state::check_not_in_callback()?;
         let _guard = box3d_lock::lock();
-        let raw = unsafe {
-            ffi::b3RecPlayer_Create(bytes.as_ptr().cast(), bytes.len() as i32, worker_count)
-        };
+        let raw =
+            unsafe { ffi::b3CreatePlayer(bytes.as_ptr().cast(), bytes.len() as i32, worker_count) };
         Ok(Self {
             raw: NonNull::new(raw).ok_or(Error::CreateRecPlayerFailed)?,
             _not_send_sync: PhantomData,
@@ -667,7 +666,7 @@ impl RecPlayer {
 impl Drop for RecPlayer {
     fn drop(&mut self) {
         let _guard = box3d_lock::lock();
-        unsafe { ffi::b3RecPlayer_Destroy(self.raw.as_ptr()) };
+        unsafe { ffi::b3DestroyPlayer(self.raw.as_ptr()) };
     }
 }
 
