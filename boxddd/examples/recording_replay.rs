@@ -1,32 +1,39 @@
-use boxddd::{BodyDef, BodyType, Recording, ShapeDef, Sphere, World, WorldDef};
+use boxddd::{BodyType, Foundation, Recording, Sphere};
 
 fn main() -> boxddd::Result<()> {
-    let mut world = World::new(WorldDef::builder().gravity([0.0, -9.8, 0.0]).build())?;
+    let foundation = Foundation::initialize_default()?;
+    let mut world = foundation.create_world(
+        foundation
+            .world_def_builder()
+            .gravity([0.0, -9.8, 0.0])
+            .build()?,
+    )?;
     let mut recording = Recording::new()?;
-    world.try_start_recording(&mut recording)?;
+    let mut session = world.record(&mut recording)?;
 
-    let body = world.create_body(
-        BodyDef::builder()
+    let body = session.world().create_body(
+        foundation
+            .body_def_builder()
             .body_type(BodyType::Dynamic)
             .position([0.0, 2.0, 0.0])
-            .build(),
-    );
-    world.create_sphere_shape(
+            .build()?,
+    )?;
+    session.world().create_sphere_shape(
         body,
-        &ShapeDef::builder().density(1.0).build(),
+        &foundation.shape_def_builder().density(1.0).build()?,
         &Sphere::new([0.0, 0.0, 0.0], 0.25),
-    );
+    )?;
     for _ in 0..30 {
-        world.try_step(1.0 / 60.0, 4)?;
+        session.world().step(1.0 / 60.0, 4)?;
     }
-    world.try_stop_recording(&mut recording)?;
+    session.finish()?;
+    drop(world);
 
-    let mut player = recording.create_player(1)?;
+    let mut player = foundation.create_replay_player(recording.bytes()?, 1)?;
     while player.step_frame()? {}
-    println!(
-        "replayed {} frames, diverged: {}",
-        player.frame(),
-        player.has_diverged()
-    );
+    let frame = player.frame()?;
+    let diverged = player.has_diverged()?;
+    println!("replayed {frame} frames, diverged: {diverged}");
+    assert!(!diverged, "the replay diverged from the recording");
     Ok(())
 }

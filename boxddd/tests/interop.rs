@@ -1,10 +1,6 @@
-#![cfg(any(
-    feature = "mint",
-    feature = "glam",
-    feature = "cgmath",
-    feature = "nalgebra"
-))]
+#![cfg(any(feature = "mint", feature = "glam", feature = "nalgebra"))]
 
+use boxddd::error::InvalidValueReason;
 use boxddd::{Aabb, Error, Matrix3, Plane, Pos, Quat, Transform, Vec2, Vec3, WorldTransform};
 
 fn sample_matrix() -> Matrix3 {
@@ -81,7 +77,10 @@ fn mint_conversions_round_trip_and_validate_inputs() {
     };
     assert_eq!(
         Quat::try_from(invalid_quat).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "quaternion",
+            reason: InvalidValueReason::Malformed,
+        }
     );
 
     let inverted_aabb = (
@@ -98,7 +97,10 @@ fn mint_conversions_round_trip_and_validate_inputs() {
     );
     assert_eq!(
         Aabb::try_from(inverted_aabb).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "aabb.bounds",
+            reason: InvalidValueReason::InvalidCombination,
+        }
     );
 
     let invalid_plane = (
@@ -111,7 +113,10 @@ fn mint_conversions_round_trip_and_validate_inputs() {
     );
     assert_eq!(
         Plane::try_from(invalid_plane).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "plane.normal",
+            reason: InvalidValueReason::Malformed,
+        }
     );
 }
 
@@ -160,84 +165,32 @@ fn glam_conversions_round_trip_and_validate_inputs() {
 
     assert_eq!(
         Quat::try_from(glam::Quat::from_xyzw(0.0, 0.0, 0.0, 2.0)).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "quaternion",
+            reason: InvalidValueReason::Malformed,
+        }
     );
     assert_eq!(
         Transform::try_from((glam::Vec3::new(f32::NAN, 0.0, 0.0), glam::Quat::IDENTITY))
             .unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "transform",
+            reason: InvalidValueReason::NonFinite,
+        }
     );
     assert_eq!(
         Aabb::try_from((glam::Vec3::ONE, -glam::Vec3::ONE)).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "aabb.bounds",
+            reason: InvalidValueReason::InvalidCombination,
+        }
     );
     assert_eq!(
         Plane::try_from((glam::Vec3::new(2.0, 0.0, 0.0), 0.0)).unwrap_err(),
-        Error::InvalidArgument
-    );
-}
-
-#[cfg(feature = "cgmath")]
-#[test]
-fn cgmath_conversions_round_trip_and_validate_inputs() {
-    let v2 = Vec2::new(1.0, 2.0);
-    let cv2: cgmath::Vector2<f32> = v2.into();
-    assert_eq!(Vec2::from(cv2), v2);
-
-    let v3 = Vec3::new(1.0, 2.0, 3.0);
-    let cv3: cgmath::Vector3<f32> = v3.into();
-    assert_eq!(Vec3::from(cv3), v3);
-
-    let pos = Pos::new(4.0, 5.0, 6.0);
-    let point: cgmath::Point3<boxddd::types::PosScalar> = pos.into();
-    assert_eq!(Pos::from(point), pos);
-
-    let q = Quat::IDENTITY;
-    let cq: cgmath::Quaternion<f32> = q.into();
-    assert_eq!(Quat::try_from(cq).unwrap(), q);
-
-    let t = Transform::new(v3, q);
-    let ct: (cgmath::Vector3<f32>, cgmath::Quaternion<f32>) = t.into();
-    assert_eq!(Transform::try_from(ct).unwrap(), t);
-
-    let wt = WorldTransform::new(pos, q);
-    let cwt: (
-        cgmath::Point3<boxddd::types::PosScalar>,
-        cgmath::Quaternion<f32>,
-    ) = wt.into();
-    assert_eq!(WorldTransform::try_from(cwt).unwrap(), wt);
-
-    let matrix = sample_matrix();
-    let cgmath_matrix: cgmath::Matrix3<f32> = matrix.into();
-    assert_eq!(Matrix3::try_from(cgmath_matrix).unwrap(), matrix);
-
-    let aabb = sample_aabb();
-    let cgmath_aabb: (cgmath::Point3<f32>, cgmath::Point3<f32>) = aabb.into();
-    assert_eq!(Aabb::try_from(cgmath_aabb).unwrap(), aabb);
-
-    let plane = sample_plane();
-    let cgmath_plane: (cgmath::Vector3<f32>, f32) = plane.into();
-    assert_eq!(Plane::try_from(cgmath_plane).unwrap(), plane);
-
-    let invalid_quat = cgmath::Quaternion {
-        s: 2.0,
-        v: cgmath::Vector3::new(0.0, 0.0, 0.0),
-    };
-    assert_eq!(
-        Quat::try_from(invalid_quat).unwrap_err(),
-        Error::InvalidArgument
-    );
-    assert_eq!(
-        Aabb::try_from((
-            cgmath::Point3::new(1.0, 0.0, 0.0),
-            cgmath::Point3::new(-1.0, 0.0, 0.0)
-        ))
-        .unwrap_err(),
-        Error::InvalidArgument
-    );
-    assert_eq!(
-        Plane::try_from((cgmath::Vector3::new(2.0, 0.0, 0.0), 0.0)).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "plane.normal",
+            reason: InvalidValueReason::Malformed,
+        }
     );
 }
 
@@ -288,7 +241,10 @@ fn nalgebra_conversions_round_trip_and_validate_inputs() {
 
     assert_eq!(
         Quat::try_from(nalgebra::Quaternion::new(2.0, 0.0, 0.0, 0.0)).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "quaternion",
+            reason: InvalidValueReason::Malformed,
+        }
     );
     assert_eq!(
         Transform::try_from(nalgebra::Isometry3::from_parts(
@@ -296,7 +252,10 @@ fn nalgebra_conversions_round_trip_and_validate_inputs() {
             nalgebra::UnitQuaternion::identity(),
         ))
         .unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "transform",
+            reason: InvalidValueReason::NonFinite,
+        }
     );
     assert_eq!(
         Aabb::try_from((
@@ -304,10 +263,16 @@ fn nalgebra_conversions_round_trip_and_validate_inputs() {
             nalgebra::Point3::new(-1.0, 0.0, 0.0)
         ))
         .unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "aabb.bounds",
+            reason: InvalidValueReason::InvalidCombination,
+        }
     );
     assert_eq!(
         Plane::try_from((nalgebra::Vector3::new(2.0, 0.0, 0.0), 0.0)).unwrap_err(),
-        Error::InvalidArgument
+        Error::InvalidValue {
+            context: "plane.normal",
+            reason: InvalidValueReason::Malformed,
+        }
     );
 }

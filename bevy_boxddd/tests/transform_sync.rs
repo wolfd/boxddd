@@ -8,7 +8,9 @@ fn physics_app(settings: BoxdddPhysicsSettings) -> App {
     let mut app = App::new();
     app.add_plugins(TimePlugin)
         .insert_resource(TimeUpdateStrategy::FixedTimesteps(1))
-        .add_plugins(BoxdddPhysicsPlugin::new(settings));
+        .add_plugins(
+            BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()).with_settings(settings),
+        );
     app
 }
 
@@ -60,7 +62,7 @@ fn static_body_uses_bevy_authored_transform() {
 
     let body = app.world().entity(ground).get::<BoxdddBody>().unwrap().id();
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
-    let position = context.world().unwrap().body_position(body);
+    let position = context.world().unwrap().body_position(body).unwrap();
 
     assert_eq!(position, boxddd::Pos::new(0.0, -1.25, 0.0));
 }

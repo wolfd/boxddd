@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without the leading v, for example 0.1.0"
+        description: "Release version without the leading v, for example 0.4.0"
         required: true
         type: string
       source_ref:
@@ -45,15 +45,17 @@ jobs:
         with:
           cache-bin: "false"
 
-      - name: Verify Cargo workspace version matches input
-        shell: bash
+      - name: Install LLVM for upstream conformance
         run: |
-          set -euo pipefail
-          cargo_version="$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/' | tr -d ' ')"
-          if [ "$cargo_version" != "${{ inputs.version }}" ]; then
-            echo "::error::Cargo workspace version '$cargo_version' does not match input version ${{ inputs.version }}"
-            exit 1
-          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-dev llvm-dev
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+
+      - name: Run Python maintenance-tool tests
+        run: python3 -m unittest discover -s tools/tests
+
+      - name: Validate release semver profile
+        run: python3 tools/semver_audit.py --release-version "${{ inputs.version }}" --validate-only
 
       - name: Check changelog release notes
         shell: bash
@@ -64,12 +66,10 @@ jobs:
           test -s release-notes.md
 
       - name: Install cargo-semver-checks
-        if: ${{ inputs.version == '0.2.0' }}
         run: cargo install cargo-semver-checks --version 0.48.0 --locked
 
-      - name: Audit known 0.2 semver breaks
-        if: ${{ inputs.version == '0.2.0' }}
-        run: python3 tools/semver_audit.py --baseline-rev v0.1.0 --release-type minor
+      - name: Audit release semver breaks
+        run: python3 tools/semver_audit.py --release-version "${{ inputs.version }}"
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -79,6 +79,17 @@ jobs:
 
       - name: Validate official sample parity matrix
         run: cargo run -p xtask -- sample-parity --check
+
+      - name: Checkout pinned Box3D source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/update_box3d_and_bindings.py checkout \
+            --destination "$RUNNER_TEMP/box3d-upstream"
+          echo "BOXDDD_UPSTREAM_SOURCE=$RUNNER_TEMP/box3d-upstream" >> "$GITHUB_ENV"
+
+      - name: Check pinned upstream conformance
+        run: python3 tools/update_box3d_and_bindings.py check --source "$BOXDDD_UPSTREAM_SOURCE" --mode both
 
       - name: Build package archives
         shell: bash
@@ -96,52 +107,10 @@ jobs:
           sys_crate="target/package/boxddd-sys-${version}.crate"
           core_crate="target/package/boxddd-${version}.crate"
           bevy_crate="target/package/bevy_boxddd-${version}.crate"
-
-          for crate in "$sys_crate" "$core_crate" "$bevy_crate"; do
-            list="${crate}.list"
-            tar -tf "$crate" | tee "$list" >/dev/null
-            if grep -E '(^|/)(repo-ref|target|\.github)(/|$)|(^|/)docs/plans/' "$list"; then
-              echo "::error::$crate contains non-publishable workspace content"
-              exit 1
-            fi
-          done
-
-          assert_root_readme_contains() {
-            local crate="$1"
-            local needle="$2"
-            local readme
-            readme="$(tar -tf "$crate" | awk '/^[^/]+\/README\.md$/ && !found { print; found=1 }')"
-            if [ -z "$readme" ]; then
-              echo "::error::$crate is missing its root README.md"
-              exit 1
-            fi
-            tar -xOf "$crate" "$readme" | grep -F "$needle" >/dev/null
-          }
-
-          tar -tf "$sys_crate" | grep -F '/README.md'
-          tar -tf "$sys_crate" | grep -F '/provider/debug_callbacks.c'
-          tar -tf "$sys_crate" | grep -F '/third-party/box3d/LICENSE'
-          tar -tf "$core_crate" | grep -F '/README.md'
-          tar -tf "$core_crate" | grep -F '/examples/README.md'
-          tar -tf "$core_crate" | grep -F '/tests/fixtures/api_coverage_symbols.txt'
-          tar -tf "$core_crate" | grep -F '/examples/compound_query.rs'
-          tar -tf "$core_crate" | grep -F '/examples/events.rs'
-          tar -tf "$core_crate" | grep -F '/examples/body_controls.rs'
-          tar -tf "$core_crate" | grep -F '/examples/continuous_collision.rs'
-          tar -tf "$core_crate" | grep -F '/examples/character_mover.rs'
-          tar -tf "$core_crate" | grep -F '/examples/mesh_height_field_query.rs'
-          tar -tf "$core_crate" | grep -F '/examples/glam_interop.rs'
-          tar -tf "$core_crate" | grep -F '/examples/nalgebra_interop.rs'
-          tar -tf "$core_crate" | grep -F '/examples/dynamic_tree.rs'
-          tar -tf "$bevy_crate" | grep -F '/README.md'
-          tar -tf "$bevy_crate" | grep -F '/examples/README.md'
-          tar -tf "$bevy_crate" | grep -F '/examples/advanced_colliders_3d.rs'
-          tar -tf "$bevy_crate" | grep -F '/examples/joint_gallery_3d.rs'
-          tar -tf "$bevy_crate" | grep -F '/examples/testbed_3d/main.rs'
-          tar -tf "$bevy_crate" | grep -F '/examples/testbed_3d/scenes.rs'
-
-          assert_root_readme_contains "$core_crate" 'docs/upstream-parity/box3d-sample-matrix.md'
-          assert_root_readme_contains "$bevy_crate" 'docs/upstream-parity/box3d-sample-matrix.md'
+          python3 tools/audit_crate_packages.py \
+            --sys "$sys_crate" \
+            --core "$core_crate" \
+            --bevy "$bevy_crate"
 
       - name: Dry-run registry-independent crate
         shell: bash

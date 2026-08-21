@@ -2,9 +2,47 @@
 //! Safe, ergonomic Rust bindings for Box3D.
 //!
 //! The crate wraps the primary Box3D simulation APIs with Rust-owned value types, builders,
-//! recoverable `try_*` methods, and callback panic containment.
+//! unprefixed `Result`-returning operations, and callback panic containment.
 //! Low-level process-global hooks and raw `void*` user data stay outside the ordinary safe API;
 //! APIs with an explicit policy live under `boxddd::raw` and are not re-exported by the prelude.
+//!
+//! # Quick start
+//!
+//! ```
+//! use boxddd::{BodyType, BoxHull, Foundation, Vec3};
+//!
+//! let foundation = Foundation::initialize_default()?;
+//! let mut world = foundation.create_world(
+//!     foundation
+//!         .world_def_builder()
+//!         .gravity(Vec3::new(0.0, -10.0, 0.0))
+//!         .build()?,
+//! )?;
+//! let ground = world.create_body(foundation.body_def())?;
+//! world.create_hull_shape(
+//!     ground,
+//!     &foundation.shape_def(),
+//!     &BoxHull::new(8.0, 0.5, 8.0)?,
+//! )?;
+//! let body = world.create_body(
+//!     foundation
+//!         .body_def_builder()
+//!         .body_type(BodyType::Dynamic)
+//!         .position([0.0, 4.0, 0.0])
+//!         .build()?,
+//! )?;
+//! world.create_hull_shape(
+//!     body,
+//!     &foundation.shape_def_builder().density(1.0).build()?,
+//!     &BoxHull::cube(0.5)?,
+//! )?;
+//! world.step(1.0 / 60.0, 4)?;
+//! assert!(world.body_position(body)?.y < 4.0);
+//! # Ok::<(), boxddd::Error>(())
+//! ```
+//!
+//! Task-focused runnable programs are indexed in the
+//! [core example catalog](https://github.com/Latias94/boxddd/blob/main/boxddd/examples/README.md).
 //!
 //! See the repository's `docs/api-coverage.md` for the tested upstream API coverage inventory.
 
@@ -15,12 +53,15 @@ pub mod callbacks;
 #[doc = "Standalone collision, cast, overlap, distance, manifold, and plane helpers."]
 pub mod collision;
 mod core {
-    pub(crate) mod box3d_lock;
     pub(crate) mod callback_state;
     pub(crate) mod debug_checks;
     pub(crate) mod ffi_vec;
+    pub(crate) mod foundation;
     pub(crate) mod material_mix_registry;
+    pub(crate) mod provenance;
     pub(crate) mod task_system;
+    pub(crate) mod units;
+    pub(crate) mod validation;
     pub(crate) mod wasm;
 }
 #[doc = "Collected debug draw commands and debug draw option types."]
@@ -31,12 +72,7 @@ pub mod dynamic_tree;
 pub mod error;
 #[doc = "Body, contact, joint, and sensor event snapshots read from a world."]
 pub mod events;
-#[cfg(any(
-    feature = "mint",
-    feature = "glam",
-    feature = "cgmath",
-    feature = "nalgebra"
-))]
+#[cfg(any(feature = "mint", feature = "glam", feature = "nalgebra"))]
 mod interop;
 #[doc = "Joint definitions and joint-specific world APIs."]
 pub mod joints;
@@ -61,22 +97,23 @@ pub use collision::{
     BoxCastInput, CastOutput, CollisionPlane, DistanceInput, DistanceOutput, LocalManifold,
     PlaneSolverResult, RayCastInput, ShapeCastInput, ShapeCastPairInput, ShapeProxy, Sweep,
     TimeOfImpactInput, TimeOfImpactOutput, TimeOfImpactState, clip_vector,
-    collide_capsule_and_sphere, collide_capsule_and_triangle, collide_capsules,
-    collide_hull_and_capsule, collide_hull_and_sphere, collide_hull_and_triangle, collide_hulls,
-    collide_sphere_and_triangle, collide_spheres, compute_capsule_aabb, compute_capsule_mass,
-    compute_compound_aabb, compute_height_field_aabb, compute_hull_aabb, compute_hull_mass,
-    compute_mesh_aabb, compute_sphere_aabb, compute_sphere_mass, get_sweep_transform,
-    overlap_capsule, overlap_compound, overlap_height_field, overlap_hull, overlap_mesh,
-    overlap_sphere, ray_cast_capsule, ray_cast_compound, ray_cast_height_field,
+    collide_capsule_and_sphere, collide_capsules, collide_hull_and_capsule,
+    collide_hull_and_sphere, collide_hulls, collide_spheres, collide_triangle_and_capsule,
+    collide_triangle_and_hull, collide_triangle_and_sphere, compute_capsule_aabb,
+    compute_capsule_mass, compute_compound_aabb, compute_height_field_aabb, compute_hull_aabb,
+    compute_hull_mass, compute_mesh_aabb, compute_sphere_aabb, compute_sphere_mass,
+    get_sweep_transform, overlap_capsule, overlap_compound, overlap_height_field, overlap_hull,
+    overlap_mesh, overlap_sphere, ray_cast_capsule, ray_cast_compound, ray_cast_height_field,
     ray_cast_hollow_sphere, ray_cast_hull, ray_cast_mesh, ray_cast_sphere, shape_cast_capsule,
     shape_cast_compound, shape_cast_height_field, shape_cast_hull, shape_cast_mesh,
     shape_cast_pair, shape_cast_sphere, shape_distance, solve_planes, sweep_transform,
     time_of_impact,
 };
+pub use core::foundation::{Foundation, FoundationActivity, FoundationConfig, StallThreshold};
 pub use core::task_system::{TaskSystem, TaskSystemStats};
 pub use debug_draw::{
     DebugCompoundChild, DebugDraw, DebugDrawCommand, DebugDrawDiagnostic, DebugDrawFrame,
-    DebugDrawOptions, DebugHullFace, DebugMesh, DebugMeshTriangle, DebugShape, DebugShapeAsset,
+    DebugDrawOptions, DebugHullFace, DebugMesh, DebugMeshTriangle, DebugShapeAsset,
     DebugShapeEvent, DebugShapeGeometry, DebugShapeHandle, HexColor,
 };
 pub use dynamic_tree::{
@@ -84,7 +121,7 @@ pub use dynamic_tree::{
     DynamicTreeClosestResult, DynamicTreeFilter, DynamicTreeHit, DynamicTreeProxy,
     DynamicTreeProxyId, DynamicTreeRayCastHit,
 };
-pub use error::{ApiError, ApiResult, Error, Result};
+pub use error::{Error, Result};
 pub use events::{
     BodyMoveEvent, BodyMoveIter, ContactBeginIter, ContactBeginTouch, ContactBeginTouchEvent,
     ContactEndIter, ContactEndTouch, ContactEndTouchEvent, ContactEvents, ContactHit,
@@ -100,8 +137,8 @@ pub use query::{
     TreeStats,
 };
 pub use recording::{
-    RecPlayer, RecPlayerInfo, RecQueryHit, RecQueryInfo, RecQueryType, Recording, ReplayWorldId,
-    validate_replay_bytes,
+    RecPlayer, RecPlayerInfo, RecQueryHit, RecQueryInfo, RecQueryType, Recording, RecordingSession,
+    ReplayWorldId,
 };
 pub use shapes::{
     BoxHull, Capsule, Compound, CompoundBuilder, CompoundBytes, CompoundCapsule, CompoundChild,
@@ -118,8 +155,8 @@ pub use types::{
     segment_distance, steiner_inertia,
 };
 pub use world::{
-    ExplosionDef, ExplosionDefBuilder, World, WorldDef, WorldDefBuilder, allocated_byte_count,
-    is_double_precision, version,
+    ExplosionDef, ExplosionDefBuilder, StepOutcome, World, WorldDef, WorldDefBuilder,
+    allocated_byte_count, is_double_precision, version,
 };
 
 #[doc(hidden)]
@@ -152,5 +189,21 @@ pub mod __private {
 
     pub fn task_system_guard_rejections_for_test(task_system: &crate::TaskSystem) -> usize {
         task_system.__guard_rejections_for_test()
+    }
+
+    pub fn force_next_replay_restore_mismatch_for_test() {
+        crate::core::units::force_next_restore_mismatch_for_test();
+    }
+
+    pub fn defer_replay_drop_for_test(player: crate::RecPlayer) -> crate::FoundationActivity {
+        let owner_frame = crate::core::callback_state::OwnerCallFrame::enter();
+        let callback_guard = crate::core::callback_state::CallbackGuard::enter();
+        drop(player);
+        drop(callback_guard);
+        let activity = crate::Foundation::get()
+            .expect("test replay player requires an initialized Foundation")
+            .activity();
+        drop(owner_frame);
+        activity
     }
 }
