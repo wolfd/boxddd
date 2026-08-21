@@ -110,6 +110,53 @@ jobs:
       - name: Run double precision layout tests
         run: cargo nextest run -p boxddd-sys --features double-precision --test layout
 
+  voxel-geometry:
+    name: Voxel geometry (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: float-simd
+            cmake_flags: "-DBOX3D_DISABLE_SIMD=OFF"
+          - name: float-scalar
+            cmake_flags: "-DBOX3D_DISABLE_SIMD=ON"
+          - name: double
+            cmake_flags: "-DBOX3D_DOUBLE_PRECISION=ON"
+          - name: asan
+            cmake_flags: "-DBOX3D_SANITIZE=ON -DBOX3D_SANITIZER_TYPE=address"
+          - name: ubsan
+            cmake_flags: "-DBOX3D_SANITIZE=ON -DBOX3D_SANITIZER_TYPE=undefined"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure native voxel tests
+        shell: bash
+        run: |
+          cmake \
+            -S boxddd-sys/third-party/box3d \
+            -B "target/voxel-${{ matrix.name }}" \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DBOX3D_UNIT_TESTS=ON \
+            -DBOX3D_SAMPLES=OFF \
+            -DBOX3D_BENCHMARKS=OFF \
+            -DBOX3D_VALIDATE=ON \
+            -DBOX3D_COMPILE_WARNING_AS_ERROR=ON \
+            ${{ matrix.cmake_flags }}
+
+      - name: Build native voxel tests
+        run: cmake --build "target/voxel-${{ matrix.name }}" --parallel 2 --target test
+
+      - name: Run native voxel geometry gates
+        shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          "target/voxel-${{ matrix.name }}/bin/test" VoxelCollideTest
+          "target/voxel-${{ matrix.name }}/bin/test" VoxelPropertyTest
+
   examples:
     name: Examples (Ubuntu)
     runs-on: ubuntu-latest
@@ -281,6 +328,13 @@ jobs:
         run: |
           cargo nextest run -p boxddd --features serde --test serde_values
           cargo nextest run -p boxddd --features mint --test interop
+
+      - name: Run voxel public API feature matrix
+        run: |
+          cargo nextest run -p boxddd --test voxel_public_api
+          cargo nextest run -p boxddd --features validate --test voxel_public_api
+          cargo nextest run -p boxddd --features disable-simd --test voxel_public_api
+          cargo nextest run -p boxddd --features double-precision --test voxel_public_api
           cargo nextest run -p boxddd --features glam --test interop
           cargo nextest run -p boxddd --features nalgebra --test interop
           cargo nextest run -p boxddd --features "mint glam nalgebra serde" --test interop

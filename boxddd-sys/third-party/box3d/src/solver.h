@@ -231,6 +231,21 @@ typedef struct b3StepContext
 	int activeColorCount;
 	int workerCount;
 
+	// FORK: idle-worker wait policy (a b3SpinPolicy) and, for the timed variant,
+	// how many max-size pause bursts a waiting worker issues before it parks on its
+	// semaphore. Both filled once per step by the main thread during setup; read (never
+	// written) by workers.
+	int spinPolicy;
+	int spinBurstsBeforePark;
+
+	// FORK: set by the orchestrator around the serial overflow phases it runs
+	// alone (prepare / warm start / solve / relax / restitution / store). Under
+	// b3_spinPolicyHintPark an idle worker parks promptly while this is nonzero and spins
+	// otherwise, which puts a park/wake pair on each of the ~18 serial windows in a step
+	// instead of on each of its ~600 stage barriers. Advisory only: parking correctness
+	// comes from the sync-bits handshake, so a stale read here can never lose a wakeup.
+	b3AtomicU32 serialPhase;
+
 	b3SolverStage* stages;
 	int stageCount;
 	bool enableWarmStarting;

@@ -9,6 +9,8 @@
 #include "box3d/collision.h"
 #include "box3d/types.h"
 
+#include "voxel_collide.h"
+
 #define B3_FORCE_GHOST_COLLISIONS 0
 
 typedef struct b3Shape b3Shape;
@@ -62,7 +64,8 @@ enum b3ContactFlags
 	// This contact wants pre-solve events
 	b3_simEnablePreSolveEvents = 0x00200000,
 
-	// This is a mesh contact
+	// This contact uses the scalar solver lane. This includes meshes and voxel
+	// contacts with more than one manifold.
 	b3_simMeshContact = 0x00400000,
 
 	// Relative transform is cached for contact recycling
@@ -70,6 +73,13 @@ enum b3ContactFlags
 
 	// Enable speculative contact points
 	b3_enableSpeculativePoints = 0x01000000,
+
+	// This contact includes a voxel shape. Unlike meshes, a voxel contact can
+	// move to the wide convex solver when it has exactly one manifold.
+	b3_simVoxelContact = 0x02000000,
+
+	// The collision task requested a serial graph-storage migration.
+	b3_simSolverClassChanged = 0x04000000,
 };
 
 // A contact edge is used to connect bodies and contacts together
@@ -94,6 +104,24 @@ typedef struct b3ConvexContact
 {
 	b3ContactCache cache;
 } b3ConvexContact;
+
+typedef struct b3VoxelManifoldState
+{
+	b3VoxelPatchKey key;
+	b3VoxelPatchKey pointKeys[B3_MAX_MANIFOLD_POINTS];
+	uint8_t kind;
+	uint8_t pointKinds[B3_MAX_MANIFOLD_POINTS];
+	uint8_t padding[3];
+} b3VoxelManifoldState;
+
+b3DeclareArray( b3VoxelManifoldState );
+
+typedef struct b3VoxelContactWorkspace
+{
+	// Parallel to b3Contact::manifolds for voxel/voxel contacts. Voxel/convex
+	// contacts deliberately keep this empty while using the same geometry owner.
+	b3Array( b3VoxelManifoldState ) states;
+} b3VoxelContactWorkspace;
 
 // Represents the persistent interaction between two shapes
 typedef struct b3Contact
@@ -144,11 +172,14 @@ typedef struct b3Contact
 	// Mixed friction and restitution
 	float friction;
 
-	// Usage determined by b3_simMeshContact in simFlags
+	// Geometry ownership is selected by b3_simVoxelContact first, then
+	// b3_simMeshContact. The mesh flag also selects the scalar solver lane and
+	// may change independently for voxel contacts.
 	union
 	{
 		b3ConvexContact convexContact;
 		b3MeshContact meshContact;
+		b3VoxelContactWorkspace voxelContact;
 	};
 
 	float restitution;
@@ -176,8 +207,12 @@ void b3InitializeContactRegisters( void );
 void b3CreateContact( b3World* world, b3Shape* shapeA, b3Shape* shapeB, int childIndex );
 void b3DestroyContact( b3World* world, b3Contact* contact, bool wakeBodies );
 
-bool b3UpdateContact( b3World* world, int workerIndex, b3Contact* contact, b3Shape* shapeA, b3Vec3 localCenterA, b3WorldTransform xfA,
-					  b3Shape* shapeB, b3Vec3 localCenterB, b3WorldTransform xfB, bool isFast, b3Arena arena );
+bool b3UpdateContact( b3World* world, int workerIndex, b3Contact* contact, b3Shape* shapeA, b3Vec3 localCenterA,
+					  b3WorldTransform xfA, b3Shape* shapeB, b3Vec3 localCenterB, b3WorldTransform xfB, bool isFast,
+					  b3Arena arena );
 
 bool b3ComputeMeshManifolds( b3World* world, int workerIndex, b3Contact* contact, const b3Shape* shapeA, const int* materialMap,
 							 b3WorldTransform xfA, const b3Shape* shapeB, b3WorldTransform xfB, bool isFast, b3Arena arena );
+
+bool b3ComputeVoxelManifolds( b3World* world, int workerIndex, b3Contact* contact, const b3Shape* shapeA, b3WorldTransform xfA,
+							  const b3Shape* shapeB, b3WorldTransform xfB, b3Arena arena );

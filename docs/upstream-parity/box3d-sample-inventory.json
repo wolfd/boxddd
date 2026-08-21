@@ -3,97 +3,97 @@
     {
       "category": "Benchmark",
       "name": "Candy Cups",
-      "source": "sample_benchmark.cpp:371"
+      "source": "sample_benchmark.cpp:373"
     },
     {
       "category": "Benchmark",
       "name": "Chains",
-      "source": "sample_benchmark.cpp:1222"
+      "source": "sample_benchmark.cpp:1223"
     },
     {
       "category": "Benchmark",
       "name": "Convex Pile",
-      "source": "sample_benchmark.cpp:1483"
+      "source": "sample_benchmark.cpp:1488"
     },
     {
       "category": "Benchmark",
       "name": "Destruction",
-      "source": "sample_benchmark.cpp:1416"
+      "source": "sample_benchmark.cpp:1417"
     },
     {
       "category": "Benchmark",
       "name": "Explosion",
-      "source": "sample_benchmark.cpp:488"
+      "source": "sample_benchmark.cpp:490"
     },
     {
       "category": "Benchmark",
       "name": "Falling Boxes",
-      "source": "sample_benchmark.cpp:293"
+      "source": "sample_benchmark.cpp:295"
     },
     {
       "category": "Benchmark",
       "name": "Falling Trees",
-      "source": "sample_benchmark.cpp:730"
+      "source": "sample_benchmark.cpp:732"
     },
     {
       "category": "Benchmark",
       "name": "Height Field",
-      "source": "sample_benchmark.cpp:658"
+      "source": "sample_benchmark.cpp:660"
     },
     {
       "category": "Benchmark",
       "name": "Hull",
-      "source": "sample_benchmark.cpp:1110"
+      "source": "sample_benchmark.cpp:1111"
     },
     {
       "category": "Benchmark",
       "name": "Joint Grid",
-      "source": "sample_benchmark.cpp:248"
+      "source": "sample_benchmark.cpp:250"
     },
     {
       "category": "Benchmark",
       "name": "Junkyard",
-      "source": "sample_benchmark.cpp:1455"
+      "source": "sample_benchmark.cpp:1456"
     },
     {
       "category": "Benchmark",
       "name": "Large Pyramid",
-      "source": "sample_benchmark.cpp:44"
+      "source": "sample_benchmark.cpp:46"
     },
     {
       "category": "Benchmark",
       "name": "Large World",
-      "source": "sample_benchmark.cpp:1022"
+      "source": "sample_benchmark.cpp:1024"
     },
     {
       "category": "Benchmark",
       "name": "Large World",
-      "source": "sample_benchmark.cpp:203"
+      "source": "sample_benchmark.cpp:205"
     },
     {
       "category": "Benchmark",
       "name": "Many Pyramids",
-      "source": "sample_benchmark.cpp:101"
+      "source": "sample_benchmark.cpp:103"
     },
     {
       "category": "Benchmark",
       "name": "Rain",
-      "source": "sample_benchmark.cpp:154"
+      "source": "sample_benchmark.cpp:156"
     },
     {
       "category": "Benchmark",
       "name": "Sensor",
-      "source": "sample_benchmark.cpp:963"
+      "source": "sample_benchmark.cpp:965"
     },
     {
       "category": "Benchmark",
       "name": "Washer",
-      "source": "sample_benchmark.cpp:990"
+      "source": "sample_benchmark.cpp:992"
     },
     {
       "category": "Benchmark",
       "name": "Wide Pyramid",
-      "source": "sample_benchmark.cpp:68"
+      "source": "sample_benchmark.cpp:70"
     },
     {
       "category": "Bodies",
@@ -103,22 +103,27 @@
     {
       "category": "Bodies",
       "name": "Cast",
-      "source": "sample_bodies.cpp:975"
+      "source": "sample_bodies.cpp:981"
+    },
+    {
+      "category": "Bodies",
+      "name": "Class Ring",
+      "source": "sample_bodies.cpp:1284"
     },
     {
       "category": "Bodies",
       "name": "Disable",
-      "source": "sample_bodies.cpp:788"
+      "source": "sample_bodies.cpp:794"
     },
     {
       "category": "Bodies",
       "name": "Fixed Rotation",
-      "source": "sample_bodies.cpp:1182"
+      "source": "sample_bodies.cpp:1188"
     },
     {
       "category": "Bodies",
       "name": "Gyroscopic Precession",
-      "source": "sample_bodies.cpp:578"
+      "source": "sample_bodies.cpp:584"
     },
     {
       "category": "Bodies",
@@ -128,12 +133,17 @@
     {
       "category": "Bodies",
       "name": "Kinematic",
-      "source": "sample_bodies.cpp:1051"
+      "source": "sample_bodies.cpp:1057"
     },
     {
       "category": "Bodies",
       "name": "Lock Mixing",
-      "source": "sample_bodies.cpp:1133"
+      "source": "sample_bodies.cpp:1139"
+    },
+    {
+      "category": "Bodies",
+      "name": "Offset Kinematic",
+      "source": "sample_bodies.cpp:1335"
     },
     {
       "category": "Bodies",
@@ -143,7 +153,7 @@
     {
       "category": "Bodies",
       "name": "Weeble",
-      "source": "sample_bodies.cpp:679"
+      "source": "sample_bodies.cpp:685"
     },
     {
       "category": "Character",
@@ -322,6 +332,11 @@
     },
     {
       "category": "Events",
+      "name": "Contact",
+      "source": "sample_events.cpp:934"
+    },
+    {
+      "category": "Events",
       "name": "Hit",
       "source": "sample_events.cpp:246"
     },
@@ -338,12 +353,12 @@
     {
       "category": "Events",
       "name": "Persistent Contact",
-      "source": "sample_events.cpp:671"
+      "source": "sample_events.cpp:1033"
     },
     {
       "category": "Events",
       "name": "Sensor Hits",
-      "source": "sample_events.cpp:902"
+      "source": "sample_events.cpp:1264"
     },
     {
       "category": "Events",
@@ -623,7 +638,7 @@
     {
       "category": "Replay",
       "name": "Viewer",
-      "source": "sample_replay.cpp:1782"
+      "source": "sample_replay.cpp:1843"
     },
     {
       "category": "Robustness",
@@ -802,5 +817,5 @@
     }
   ],
   "schema_version": 1,
-  "upstream_commit": "781673be801569a94be7942848755fc0baad3653"
+  "upstream_commit": "30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c"
 }

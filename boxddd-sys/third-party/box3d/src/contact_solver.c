@@ -15,6 +15,20 @@
 
 #if B3_ENABLE_VALIDATION
 #include "shape.h"
+
+static bool b3ValidateAngularResponse( b3Vec3 cachedDelta, b3Matrix3 inertia, b3Vec3 angularImpulse )
+{
+	b3Vec3 reference = b3MulMV( inertia, angularImpulse );
+	float scale = b3MaxFloat( fabsf( reference.x ), b3MaxFloat( fabsf( reference.y ), fabsf( reference.z ) ) );
+	float tolerance = 64.0f * FLT_EPSILON * ( 1.0f + scale );
+	return fabsf( cachedDelta.x - reference.x ) <= tolerance && fabsf( cachedDelta.y - reference.y ) <= tolerance &&
+		   fabsf( cachedDelta.z - reference.z ) <= tolerance;
+}
+
+static bool b3ValidateNormalTorque( b3Vec3 cachedDelta, b3Matrix3 inertia, b3Vec3 anchor, b3Vec3 impulse )
+{
+	return b3ValidateAngularResponse( cachedDelta, inertia, b3Cross( anchor, impulse ) );
+}
 #endif
 
 // contact separation for sub-stepping
@@ -205,14 +219,26 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 					b3Vec3 rA = cp->rA;
 					b3Vec3 rB = cp->rB;
 
-					b3Vec3 rnA = b3Cross( rA, normal );
-					b3Vec3 rnB = b3Cross( rB, normal );
-					float kNormal = mA + mB + b3Dot( rnA, b3MulMV( iA, rnA ) ) + b3Dot( rnB, b3MulMV( iB, rnB ) );
+					float kNormal = mA + mB;
+					cp->normalTorqueA = b3Vec3_zero;
+					cp->normalTorqueB = b3Vec3_zero;
+					if ( indexA != B3_NULL_INDEX )
+					{
+						b3Vec3 rnA = b3Cross( rA, normal );
+						cp->normalTorqueA = b3MulMV( iA, rnA );
+						kNormal += b3Dot( rnA, cp->normalTorqueA );
+					}
+					if ( indexB != B3_NULL_INDEX )
+					{
+						b3Vec3 rnB = b3Cross( rB, normal );
+						cp->normalTorqueB = b3MulMV( iB, rnB );
+						kNormal += b3Dot( rnB, cp->normalTorqueB );
+					}
 					cp->normalMass = kNormal > 0.0f ? 1.0f / kNormal : 0.0f;
 
 					// Save relative velocity for restitution
-					b3Vec3 vrA = b3Add( vA, b3Cross( wA, rA ) );
-					b3Vec3 vrB = b3Add( vB, b3Cross( wB, rB ) );
+					b3Vec3 vrA = indexA == B3_NULL_INDEX ? b3Vec3_zero : b3Add( vA, b3Cross( wA, rA ) );
+					b3Vec3 vrB = indexB == B3_NULL_INDEX ? b3Vec3_zero : b3Add( vB, b3Cross( wB, rB ) );
 					cp->relativeVelocity = b3Dot( normal, b3Sub( vrB, vrA ) );
 
 					// C0 friction center decay. Needed to prevent spinning top drift (GyroscopicPrecession sample).
@@ -238,16 +264,33 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 					cp->leverArm = b3Distance( cp->rA, centerA );
 				}
 
-				b3Vec3 rtA1 = b3Cross( centerA, tangent1 );
-				b3Vec3 rtA2 = b3Cross( centerA, tangent2 );
-				b3Vec3 rtB1 = b3Cross( centerB, tangent1 );
-				b3Vec3 rtB2 = b3Cross( centerB, tangent2 );
-
 				{
-					b3Matrix2 k;
-					k.cx.x = mA + mB + b3Dot( rtA1, b3MulMV( iA, rtA1 ) ) + b3Dot( rtB1, b3MulMV( iB, rtB1 ) );
-					k.cy.y = mA + mB + b3Dot( rtA2, b3MulMV( iA, rtA2 ) ) + b3Dot( rtB2, b3MulMV( iB, rtB2 ) );
-					k.cx.y = k.cy.x = b3Dot( rtA1, b3MulMV( iA, rtA2 ) ) + b3Dot( rtB1, b3MulMV( iB, rtB2 ) );
+					b3Matrix2 k = { { mA + mB, 0.0f }, { 0.0f, mA + mB } };
+					constraint->tangentTorqueA1 = b3Vec3_zero;
+					constraint->tangentTorqueA2 = b3Vec3_zero;
+					constraint->tangentTorqueB1 = b3Vec3_zero;
+					constraint->tangentTorqueB2 = b3Vec3_zero;
+					if ( indexA != B3_NULL_INDEX )
+					{
+						b3Vec3 rtA1 = b3Cross( centerA, tangent1 );
+						b3Vec3 rtA2 = b3Cross( centerA, tangent2 );
+						constraint->tangentTorqueA1 = b3MulMV( iA, rtA1 );
+						constraint->tangentTorqueA2 = b3MulMV( iA, rtA2 );
+						k.cx.x += b3Dot( rtA1, constraint->tangentTorqueA1 );
+						k.cy.y += b3Dot( rtA2, constraint->tangentTorqueA2 );
+						k.cx.y += b3Dot( rtA1, constraint->tangentTorqueA2 );
+					}
+					if ( indexB != B3_NULL_INDEX )
+					{
+						b3Vec3 rtB1 = b3Cross( centerB, tangent1 );
+						b3Vec3 rtB2 = b3Cross( centerB, tangent2 );
+						constraint->tangentTorqueB1 = b3MulMV( iB, rtB1 );
+						constraint->tangentTorqueB2 = b3MulMV( iB, rtB2 );
+						k.cx.x += b3Dot( rtB1, constraint->tangentTorqueB1 );
+						k.cy.y += b3Dot( rtB2, constraint->tangentTorqueB2 );
+						k.cx.y += b3Dot( rtB1, constraint->tangentTorqueB2 );
+					}
+					k.cy.x = k.cx.y;
 
 					constraint->tangentMass = b3Invert2( k );
 					constraint->frictionImpulse.x = warmStartScale * b3Dot( manifold->frictionImpulse, tangent1 );
@@ -255,7 +298,11 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 				}
 
 				{
-					float k = b3Dot( normal, b3MulMV( b3AddMM( iA, iB ), normal ) );
+					constraint->twistTorqueA =
+						indexA != B3_NULL_INDEX ? b3MulMV( iA, normal ) : b3Vec3_zero;
+					constraint->twistTorqueB =
+						indexB != B3_NULL_INDEX ? b3MulMV( iB, normal ) : b3Vec3_zero;
+					float k = b3Dot( normal, b3Add( constraint->twistTorqueA, constraint->twistTorqueB ) );
 					constraint->twistMass = k > 0.0f ? 1.0f / k : 0.0f;
 					constraint->twistImpulse = warmStartScale * manifold->twistImpulse;
 				}
@@ -290,11 +337,27 @@ void b3WarmStartContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 	for ( int constraintIndex = startIndex; constraintIndex < endIndex; ++constraintIndex )
 	{
 		const b3ContactConstraint* contactConstraint = constraints + constraintIndex;
+		int manifoldCount = contactConstraint->manifoldCount;
+		bool isCold = contactConstraint->rollingResistance == 0.0f;
+		for ( int manifoldIndex = 0; isCold && manifoldIndex < manifoldCount; ++manifoldIndex )
+		{
+			const b3ManifoldConstraint* constraint = contactConstraint->constraints + manifoldIndex;
+			isCold = constraint->frictionImpulse.x == 0.0f && constraint->frictionImpulse.y == 0.0f &&
+					 constraint->twistImpulse == 0.0f;
+			for ( int pointIndex = 0; isCold && pointIndex < constraint->pointCount; ++pointIndex )
+			{
+				isCold = constraint->points[pointIndex].normalImpulse == 0.0f;
+			}
+		}
+		if ( isCold )
+			continue;
+
 		int indexA = contactConstraint->indexA;
 		int indexB = contactConstraint->indexB;
-
-		b3BodyState* stateA = indexA == B3_NULL_INDEX ? &dummyState : states + indexA;
-		b3BodyState* stateB = indexB == B3_NULL_INDEX ? &dummyState : states + indexB;
+		bool hasBodyA = indexA != B3_NULL_INDEX;
+		bool hasBodyB = indexB != B3_NULL_INDEX;
+		b3BodyState* stateA = hasBodyA ? states + indexA : &dummyState;
+		b3BodyState* stateB = hasBodyB ? states + indexB : &dummyState;
 
 		b3Vec3 vA = stateA->linearVelocity;
 		b3Vec3 wA = stateA->angularVelocity;
@@ -306,7 +369,6 @@ void b3WarmStartContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 		float mB = contactConstraint->invMassB;
 		b3Matrix3 iB = contactConstraint->invIB;
 
-		int manifoldCount = contactConstraint->manifoldCount;
 		for ( int manifoldIndex = 0; manifoldIndex < manifoldCount; ++manifoldIndex )
 		{
 			b3ManifoldConstraint* constraint = contactConstraint->constraints + manifoldIndex;
@@ -317,43 +379,78 @@ void b3WarmStartContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 			for ( int j = 0; j < pointCount; ++j )
 			{
 				const b3ManifoldConstraintPoint* cp = constraint->points + j;
+				float normalImpulse = cp->normalImpulse;
+				if ( normalImpulse == 0.0f )
+					continue;
 
-				// fixed anchors
-				b3Vec3 rA = cp->rA;
-				b3Vec3 rB = cp->rB;
-
-				b3Vec3 impulse = b3MulSV( cp->normalImpulse, normal );
-				wA = b3Sub( wA, b3MulMV( iA, b3Cross( rA, impulse ) ) );
-				vA = b3MulSub( vA, mA, impulse );
-				wB = b3Add( wB, b3MulMV( iB, b3Cross( rB, impulse ) ) );
-				vB = b3MulAdd( vB, mB, impulse );
+				b3Vec3 impulse = b3MulSV( normalImpulse, normal );
+				if ( hasBodyA )
+				{
+					B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( normalImpulse, cp->normalTorqueA ), iA, cp->rA,
+												 impulse ) );
+					wA = b3MulSub( wA, normalImpulse, cp->normalTorqueA );
+					vA = b3MulSub( vA, mA, impulse );
+				}
+				if ( hasBodyB )
+				{
+					B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( normalImpulse, cp->normalTorqueB ), iB, cp->rB,
+												 impulse ) );
+					wB = b3MulAdd( wB, normalImpulse, cp->normalTorqueB );
+					vB = b3MulAdd( vB, mB, impulse );
+				}
 			}
 
 			// Central friction
+			if ( constraint->frictionImpulse.x != 0.0f || constraint->frictionImpulse.y != 0.0f )
 			{
-				b3Vec3 rA = constraint->centerA;
-				b3Vec3 rB = constraint->centerB;
 				b3Vec3 impulse = b3MulSV( constraint->frictionImpulse.x, constraint->tangent1 );
 				impulse = b3Add( impulse, b3MulSV( constraint->frictionImpulse.y, constraint->tangent2 ) );
 
-				wA = b3Sub( wA, b3MulMV( iA, b3Cross( rA, impulse ) ) );
-				vA = b3MulSub( vA, mA, impulse );
-				wB = b3Add( wB, b3MulMV( iB, b3Cross( rB, impulse ) ) );
-				vB = b3MulAdd( vB, mB, impulse );
+				if ( hasBodyA )
+				{
+					b3Vec3 angular = b3Blend2( constraint->frictionImpulse.x, constraint->tangentTorqueA1,
+											 constraint->frictionImpulse.y, constraint->tangentTorqueA2 );
+					B3_VALIDATE( b3ValidateNormalTorque( angular, iA, constraint->centerA, impulse ) );
+					wA = b3Sub( wA, angular );
+					vA = b3MulSub( vA, mA, impulse );
+				}
+				if ( hasBodyB )
+				{
+					b3Vec3 angular = b3Blend2( constraint->frictionImpulse.x, constraint->tangentTorqueB1,
+											 constraint->frictionImpulse.y, constraint->tangentTorqueB2 );
+					B3_VALIDATE( b3ValidateNormalTorque( angular, iB, constraint->centerB, impulse ) );
+					wB = b3Add( wB, angular );
+					vB = b3MulAdd( vB, mB, impulse );
+				}
 			}
 
 			// Central twist friction
+			if ( constraint->twistImpulse != 0.0f )
 			{
-				b3Vec3 impulse = b3MulSV( constraint->twistImpulse, constraint->normal );
-				wA = b3Sub( wA, b3MulMV( iA, impulse ) );
-				wB = b3Add( wB, b3MulMV( iB, impulse ) );
+				if ( hasBodyA )
+				{
+					b3Vec3 angular = b3MulSV( constraint->twistImpulse, constraint->twistTorqueA );
+					B3_VALIDATE( b3ValidateAngularResponse(
+						angular, iA, b3MulSV( constraint->twistImpulse, constraint->normal ) ) );
+					wA = b3Sub( wA, angular );
+				}
+				if ( hasBodyB )
+				{
+					b3Vec3 angular = b3MulSV( constraint->twistImpulse, constraint->twistTorqueB );
+					B3_VALIDATE( b3ValidateAngularResponse(
+						angular, iB, b3MulSV( constraint->twistImpulse, constraint->normal ) ) );
+					wB = b3Add( wB, angular );
+				}
 			}
 
 			// Rolling resistance
+			if ( contactConstraint->rollingResistance > 0.0f )
 			{
 				b3Vec3 impulse = constraint->rollingImpulse;
-				wA = b3Sub( wA, b3MulMV( iA, impulse ) );
-				wB = b3Add( wB, b3MulMV( iB, impulse ) );
+				if ( hasBodyA )
+					wA = b3Sub( wA, b3MulMV( iA, impulse ) );
+				if ( hasBodyB )
+					wB = b3Add( wB, b3MulMV( iB, impulse ) );
 			}
 		}
 
@@ -371,6 +468,178 @@ void b3WarmStartContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 	}
 }
 
+// Scalar mesh contacts pair one live body with a static aggregate. Keep one
+// source implementation for both contact orientations. B3_FORCE_INLINE and the
+// literal staticA arguments at the two call sites produce branch-free A/B
+// machine paths without maintaining mirrored solver loops.
+B3_FORCE_INLINE void b3SolveStaticContact_Mesh( b3ContactConstraint* contactConstraint, b3BodyState* state,
+											 float inv_h, float contactSpeed, bool useBias, bool staticA )
+{
+	b3Vec3 v = state->linearVelocity;
+	b3Vec3 w = state->angularVelocity;
+	b3Quat dq = state->deltaRotation;
+	float m = staticA ? contactConstraint->invMassB : contactConstraint->invMassA;
+	b3Matrix3 inertia = staticA ? contactConstraint->invIB : contactConstraint->invIA;
+	b3Softness softness = contactConstraint->softness;
+	float friction = contactConstraint->friction;
+	float rollingResistance = contactConstraint->rollingResistance;
+
+	int manifoldCount = contactConstraint->manifoldCount;
+	for ( int j = 0; j < manifoldCount; ++j )
+	{
+		b3ManifoldConstraint* constraint = contactConstraint->constraints + j;
+		int pointCount = constraint->pointCount;
+		b3Vec3 normal = constraint->normal;
+		// Orient the contact basis toward the one live body. In this basis
+		// relative velocity and every applied impulse have the same sign for
+		// either A/B ordering, so the point loop has one arithmetic path.
+		b3Vec3 liveNormal = staticA ? normal : b3Neg( normal );
+		b3Vec3 liveTwistTorque = staticA ? constraint->twistTorqueB : b3Neg( constraint->twistTorqueA );
+		b3Vec3 localNormal = b3InvRotateVector( dq, liveNormal );
+		float separationOffset = b3Dot( state->deltaPosition, liveNormal );
+		float totalNormalImpulse = 0.0f;
+		float totalTwistLimit = 0.0f;
+
+		for ( int pointIndex = 0; pointIndex < pointCount; ++pointIndex )
+		{
+			b3ManifoldConstraintPoint* cp = constraint->points + pointIndex;
+			b3Vec3 liveAnchor = staticA ? cp->rB : cp->rA;
+			b3Vec3 staticAnchor = staticA ? cp->rA : cp->rB;
+			b3Vec3 liveNormalTorque = staticA ? cp->normalTorqueB : b3Neg( cp->normalTorqueA );
+
+			float liveSeparation = b3Dot( liveAnchor, localNormal );
+			float staticSeparation = b3Dot( staticAnchor, liveNormal );
+			float s = separationOffset + liveSeparation - staticSeparation + cp->baseSeparation;
+
+#if B3_ENABLE_VALIDATION
+			// Projection is algebraically identical to rotating every anchor. Keep
+			// the original expression as a validation-only oracle for drift.
+			b3Vec3 rotated = b3RotateVector( dq, liveAnchor );
+			b3Vec3 dp = staticA ? state->deltaPosition : b3Neg( state->deltaPosition );
+			b3Vec3 ds = staticA ? b3Add( dp, b3Sub( rotated, staticAnchor ) )
+								: b3Add( dp, b3Sub( staticAnchor, rotated ) );
+			float referenceSeparation = b3Dot( ds, normal ) + cp->baseSeparation;
+			float tolerance = 64.0f * FLT_EPSILON * ( 1.0f + fabsf( referenceSeparation ) );
+			B3_ASSERT( fabsf( s - referenceSeparation ) <= tolerance );
+#endif
+
+			float velocityBias = 0.0f;
+			float massScale = 1.0f;
+			float impulseScale = 0.0f;
+			if ( s > 0.0f )
+			{
+				velocityBias = s * inv_h;
+			}
+			else if ( useBias )
+			{
+				velocityBias = b3MaxFloat( softness.massScale * softness.biasRate * s, -contactSpeed );
+				massScale = softness.massScale;
+				impulseScale = softness.impulseScale;
+			}
+
+			b3Vec3 contactVelocity = b3Add( v, b3Cross( w, liveAnchor ) );
+			float vn = b3Dot( contactVelocity, liveNormal );
+			float deltaImpulse = -cp->normalMass * ( massScale * vn + velocityBias ) - impulseScale * cp->normalImpulse;
+			float newImpulse = b3MaxFloat( cp->normalImpulse + deltaImpulse, 0.0f );
+			deltaImpulse = newImpulse - cp->normalImpulse;
+			cp->normalImpulse = newImpulse;
+			cp->totalNormalImpulse += newImpulse;
+			totalNormalImpulse += newImpulse;
+			totalTwistLimit += cp->leverArm * cp->normalImpulse;
+			if ( deltaImpulse == 0.0f )
+				continue;
+
+			b3Vec3 impulse = b3MulSV( deltaImpulse, liveNormal );
+			v = b3MulAdd( v, m, impulse );
+			B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( deltaImpulse, liveNormalTorque ), inertia, liveAnchor, impulse ) );
+			w = b3MulAdd( w, deltaImpulse, liveNormalTorque );
+		}
+
+		if ( useBias )
+			continue;
+
+		// With no supporting normal impulse, Coulomb friction and twist have a
+		// zero limit. If they also have no cached impulse to remove, the
+		// remaining solve is identically zero. Rolling resistance has a separate
+		// angular limit, so retain its path whenever it is enabled.
+		if ( totalNormalImpulse == 0.0f && constraint->twistImpulse == 0.0f &&
+			 constraint->frictionImpulse.x == 0.0f && constraint->frictionImpulse.y == 0.0f &&
+			 rollingResistance == 0.0f )
+		{
+			continue;
+		}
+
+		{
+			float twistSpeed = b3Dot( liveNormal, w );
+			float maxImpulse = friction * totalTwistLimit;
+			float deltaImpulse = -constraint->twistMass * twistSpeed;
+			float oldImpulse = constraint->twistImpulse;
+			constraint->twistImpulse = b3ClampFloat( oldImpulse + deltaImpulse, -maxImpulse, maxImpulse );
+			deltaImpulse = constraint->twistImpulse - oldImpulse;
+			b3Vec3 angular = b3MulSV( deltaImpulse, liveTwistTorque );
+			B3_VALIDATE( b3ValidateAngularResponse( angular, inertia, b3MulSV( deltaImpulse, liveNormal ) ) );
+			w = b3Add( w, angular );
+		}
+
+		if ( rollingResistance > 0.0f )
+		{
+			b3Vec3 relativeW = staticA ? b3Sub( w, b3Vec3_zero ) : b3Sub( b3Vec3_zero, w );
+			b3Vec3 deltaImpulse = b3Neg( b3MulMV( contactConstraint->rollingMass, relativeW ) );
+			b3Vec3 oldImpulse = constraint->rollingImpulse;
+			constraint->rollingImpulse = b3Add( oldImpulse, deltaImpulse );
+
+			float maxImpulse = rollingResistance * totalNormalImpulse;
+			float magSqr = b3Dot( constraint->rollingImpulse, constraint->rollingImpulse );
+			if ( magSqr > maxImpulse * maxImpulse + FLT_EPSILON )
+			{
+				constraint->rollingImpulse = b3MulSV( maxImpulse / sqrtf( magSqr ), constraint->rollingImpulse );
+			}
+			deltaImpulse = b3Sub( constraint->rollingImpulse, oldImpulse );
+			w = staticA ? b3Add( w, b3MulMV( inertia, deltaImpulse ) ) : b3Sub( w, b3MulMV( inertia, deltaImpulse ) );
+		}
+
+		{
+			b3Vec3 tangent1 = staticA ? constraint->tangent1 : b3Neg( constraint->tangent1 );
+			b3Vec3 tangent2 = staticA ? constraint->tangent2 : b3Neg( constraint->tangent2 );
+			b3Vec3 tangentTorque1 = staticA ? constraint->tangentTorqueB1 : b3Neg( constraint->tangentTorqueA1 );
+			b3Vec3 tangentTorque2 = staticA ? constraint->tangentTorqueB2 : b3Neg( constraint->tangentTorqueA2 );
+			b3Vec3 liveAnchor = staticA ? constraint->centerB : constraint->centerA;
+			b3Vec3 contactVelocity = b3Add( v, b3Cross( w, liveAnchor ) );
+			b3Vec2 vt = {
+				b3Dot( contactVelocity, tangent1 ) - constraint->tangentVelocity1,
+				b3Dot( contactVelocity, tangent2 ) - constraint->tangentVelocity2,
+			};
+			b3Vec2 tangentMassVelocity = b3MulMV2( constraint->tangentMass, vt );
+			b3Vec2 deltaImpulse = { -tangentMassVelocity.x, -tangentMassVelocity.y };
+			b3Vec2 newImpulse = {
+				constraint->frictionImpulse.x + deltaImpulse.x,
+				constraint->frictionImpulse.y + deltaImpulse.y,
+			};
+			float maxImpulse = friction * totalNormalImpulse;
+			float lengthSquared = b3Dot2( newImpulse, newImpulse );
+			if ( lengthSquared > maxImpulse * maxImpulse )
+			{
+				float scale = maxImpulse / sqrtf( lengthSquared );
+				newImpulse.x *= scale;
+				newImpulse.y *= scale;
+			}
+			deltaImpulse = b3Sub2( newImpulse, constraint->frictionImpulse );
+			constraint->frictionImpulse = newImpulse;
+			b3Vec3 impulse = b3Blend2( deltaImpulse.x, tangent1, deltaImpulse.y, tangent2 );
+			v = b3MulAdd( v, m, impulse );
+			b3Vec3 angular = b3Blend2( deltaImpulse.x, tangentTorque1, deltaImpulse.y, tangentTorque2 );
+			B3_VALIDATE( b3ValidateNormalTorque( angular, inertia, liveAnchor, impulse ) );
+			w = b3Add( w, angular );
+		}
+	}
+
+	if ( state->flags & b3_dynamicFlag )
+	{
+		state->linearVelocity = v;
+		state->angularVelocity = w;
+	}
+}
+
 // Merged normal and friction loops. This is much more stable for the Jenga stack.
 void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool useBias )
 {
@@ -378,9 +647,6 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 	b3GraphColor* color = world->constraintGraph.colors + block.colorIndex;
 	b3ContactConstraint* contactConstraints = color->contactConstraints;
 	b3BodyState* states = context->states;
-
-	// This is a dummy state to represent a static body because static bodies don't have a solver body.
-	b3BodyState dummyState = b3_identityBodyState;
 
 	// The last block might not be full
 	int startIndex = block.startIndex;
@@ -396,18 +662,31 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 
 		int indexA = contactConstraint->indexA;
 		int indexB = contactConstraint->indexB;
+		bool hasBodyA = indexA != B3_NULL_INDEX;
+		bool hasBodyB = indexB != B3_NULL_INDEX;
+		if ( !hasBodyA && hasBodyB )
+		{
+			b3SolveStaticContact_Mesh( contactConstraint, states + indexB, inv_h, contactSpeed, useBias, true );
+			continue;
+		}
+		if ( hasBodyA && !hasBodyB )
+		{
+			b3SolveStaticContact_Mesh( contactConstraint, states + indexA, inv_h, contactSpeed, useBias, false );
+			continue;
+		}
+		B3_ASSERT( hasBodyA && hasBodyB );
 
 		float mA = contactConstraint->invMassA;
 		b3Matrix3 iA = contactConstraint->invIA;
 		float mB = contactConstraint->invMassB;
 		b3Matrix3 iB = contactConstraint->invIB;
 
-		b3BodyState* stateA = indexA == B3_NULL_INDEX ? &dummyState : states + indexA;
+		b3BodyState* stateA = states + indexA;
 		b3Vec3 vA = stateA->linearVelocity;
 		b3Vec3 wA = stateA->angularVelocity;
 		b3Quat dqA = stateA->deltaRotation;
 
-		b3BodyState* stateB = indexB == B3_NULL_INDEX ? &dummyState : states + indexB;
+		b3BodyState* stateB = states + indexB;
 		b3Vec3 vB = stateB->linearVelocity;
 		b3Vec3 wB = stateB->angularVelocity;
 		b3Quat dqB = stateB->deltaRotation;
@@ -437,7 +716,9 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 
 				// compute current separation
 				// this is subject to round-off error if the anchor is far from the body center of mass
-				b3Vec3 ds = b3Add( dp, b3Sub( b3RotateVector( dqB, rB ), b3RotateVector( dqA, rA ) ) );
+				b3Vec3 rotatedA = b3RotateVector( dqA, rA );
+				b3Vec3 rotatedB = b3RotateVector( dqB, rB );
+				b3Vec3 ds = b3Add( dp, b3Sub( rotatedB, rotatedA ) );
 				float s = b3Dot( ds, normal ) + cp->baseSeparation;
 
 				float velocityBias = 0.0f;
@@ -471,20 +752,34 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 
 				totalNormalImpulse += newImpulse;
 				totalTwistLimit += cp->leverArm * cp->normalImpulse;
+				if ( deltaImpulse == 0.0f )
+					continue;
 
 				// apply normal impulse
 				b3Vec3 P = b3MulSV( deltaImpulse, normal );
 				vA = b3MulSub( vA, mA, P );
-				wA = b3Sub( wA, b3MulMV( iA, b3Cross( rA, P ) ) );
-
+				B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( deltaImpulse, cp->normalTorqueA ), iA, rA, P ) );
+				wA = b3MulSub( wA, deltaImpulse, cp->normalTorqueA );
 				vB = b3MulAdd( vB, mB, P );
-				wB = b3Add( wB, b3MulMV( iB, b3Cross( rB, P ) ) );
+				B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( deltaImpulse, cp->normalTorqueB ), iB, rB, P ) );
+				wB = b3MulAdd( wB, deltaImpulse, cp->normalTorqueB );
 			}
 
 			// No friction when applying bias
 			if ( useBias == true )
 			{
 				// Go to next manifold
+				continue;
+			}
+
+			// With no supporting normal impulse, Coulomb friction and twist have a
+			// zero limit. If they also have no cached impulse to remove, the
+			// remaining solve is identically zero. Rolling resistance has a separate
+			// angular limit, so retain its path whenever it is enabled.
+			if ( totalNormalImpulse == 0.0f && constraint->twistImpulse == 0.0f &&
+				 constraint->frictionImpulse.x == 0.0f && constraint->frictionImpulse.y == 0.0f &&
+				 rollingResistance == 0.0f )
+			{
 				continue;
 			}
 
@@ -496,9 +791,14 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 				float oldImpulse = constraint->twistImpulse;
 				constraint->twistImpulse = b3ClampFloat( oldImpulse + deltaImpulse, -maxImpulse, maxImpulse );
 				deltaImpulse = constraint->twistImpulse - oldImpulse;
-
-				wA = b3Sub( wA, b3MulMV( iA, b3MulSV( deltaImpulse, constraint->normal ) ) );
-				wB = b3Add( wB, b3MulMV( iB, b3MulSV( deltaImpulse, constraint->normal ) ) );
+				b3Vec3 angularA = b3MulSV( deltaImpulse, constraint->twistTorqueA );
+				b3Vec3 angularB = b3MulSV( deltaImpulse, constraint->twistTorqueB );
+				B3_VALIDATE( b3ValidateAngularResponse(
+					angularA, iA, b3MulSV( deltaImpulse, constraint->normal ) ) );
+				B3_VALIDATE( b3ValidateAngularResponse(
+					angularB, iB, b3MulSV( deltaImpulse, constraint->normal ) ) );
+				wA = b3Sub( wA, angularA );
+				wB = b3Add( wB, angularB );
 			}
 
 			// Rolling resistance
@@ -516,7 +816,6 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 				}
 
 				deltaImpulse = b3Sub( constraint->rollingImpulse, oldImpulse );
-
 				wA = b3Sub( wA, b3MulMV( iA, deltaImpulse ) );
 				wB = b3Add( wB, b3MulMV( iB, deltaImpulse ) );
 			}
@@ -563,9 +862,15 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 				// Apply delta impulse
 				b3Vec3 P = b3Blend2( deltaImpulse.x, tangent1, deltaImpulse.y, tangent2 );
 				vA = b3MulSub( vA, mA, P );
-				wA = b3Sub( wA, b3MulMV( iA, b3Cross( rA, P ) ) );
+				b3Vec3 angularA = b3Blend2( deltaImpulse.x, constraint->tangentTorqueA1, deltaImpulse.y,
+									 constraint->tangentTorqueA2 );
+				B3_VALIDATE( b3ValidateNormalTorque( angularA, iA, rA, P ) );
+				wA = b3Sub( wA, angularA );
 				vB = b3MulAdd( vB, mB, P );
-				wB = b3Add( wB, b3MulMV( iB, b3Cross( rB, P ) ) );
+				b3Vec3 angularB = b3Blend2( deltaImpulse.x, constraint->tangentTorqueB1, deltaImpulse.y,
+									 constraint->tangentTorqueB2 );
+				B3_VALIDATE( b3ValidateNormalTorque( angularB, iB, rB, P ) );
+				wB = b3Add( wB, angularB );
 			}
 		}
 
@@ -619,9 +924,7 @@ void b3ApplyRestitution_Mesh( b3SolverBlock block, b3StepContext* context )
 		b3Vec3 wB = stateB->angularVelocity;
 
 		float mA = contactConstraint->invMassA;
-		b3Matrix3 iA = contactConstraint->invIA;
 		float mB = contactConstraint->invMassB;
-		b3Matrix3 iB = contactConstraint->invIB;
 
 		int manifoldCount = contactConstraint->manifoldCount;
 		for ( int manifoldIndex = 0; manifoldIndex < manifoldCount; ++manifoldIndex )
@@ -666,9 +969,11 @@ void b3ApplyRestitution_Mesh( b3SolverBlock block, b3StepContext* context )
 				// apply contact impulse
 				b3Vec3 P = b3MulSV( impulse, normal );
 				vA = b3MulSub( vA, mA, P );
-				wA = b3Sub( wA, b3MulMV( iA, b3Cross( rA, P ) ) );
+				B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( impulse, cp->normalTorqueA ), contactConstraint->invIA, rA, P ) );
+				wA = b3MulSub( wA, impulse, cp->normalTorqueA );
 				vB = b3MulAdd( vB, mB, P );
-				wB = b3Add( wB, b3MulMV( iB, b3Cross( rB, P ) ) );
+				B3_VALIDATE( b3ValidateNormalTorque( b3MulSV( impulse, cp->normalTorqueB ), contactConstraint->invIB, rB, P ) );
+				wB = b3MulAdd( wB, impulse, cp->normalTorqueB );
 			}
 
 			if ( stateA->flags & b3_dynamicFlag )
@@ -1551,19 +1856,31 @@ void b3WarmStartContacts_Convex( b3SolverBlock block, b3StepContext* context )
 	for ( int i = block.startIndex; i < block.startIndex + block.count; ++i )
 	{
 		b3ContactConstraintWide* c = constraints + i;
-		b3BodyStateW bA = b3GatherBodies( states, c->indexA );
-		b3BodyStateW bB = b3GatherBodies( states, c->indexB );
-
 		_Static_assert( B3_SIMD_WIDTH == 4, "width" );
 		int pointCount1 = b3MaxInt( c->pointCounts[0], c->pointCounts[1] );
 		int pointCount2 = b3MaxInt( c->pointCounts[2], c->pointCounts[3] );
 		int pointCount = b3MaxInt( pointCount1, pointCount2 );
 		B3_VALIDATE( 0 < pointCount && pointCount <= B3_MAX_MANIFOLD_POINTS );
 
+		bool isCold = b3AllZeroW( c->frictionImpulse.x ) && b3AllZeroW( c->frictionImpulse.y ) &&
+					  b3AllZeroW( c->twistImpulse ) && b3AllZeroW( c->rollingImpulse.X ) &&
+					  b3AllZeroW( c->rollingImpulse.Y ) && b3AllZeroW( c->rollingImpulse.Z );
+		for ( int j = 0; isCold && j < pointCount; ++j )
+		{
+			isCold = b3AllZeroW( c->points[j].normalImpulses );
+		}
+		if ( isCold )
+			continue;
+
+		b3BodyStateW bA = b3GatherBodies( states, c->indexA );
+		b3BodyStateW bB = b3GatherBodies( states, c->indexB );
+
 		// Normal impulses
 		for ( int j = 0; j < pointCount; ++j )
 		{
 			b3ContactConstraintPointWide* cp = c->points + j;
+			if ( b3AllZeroW( cp->normalImpulses ) )
+				continue;
 
 			b3Vec3W rA = cp->anchorAs;
 			b3Vec3W rB = cp->anchorBs;
@@ -1580,6 +1897,7 @@ void b3WarmStartContacts_Convex( b3SolverBlock block, b3StepContext* context )
 		}
 
 		// Central friction
+		if ( !b3AllZeroW( c->frictionImpulse.x ) || !b3AllZeroW( c->frictionImpulse.y ) )
 		{
 			b3Vec3W rA = c->centerA;
 			b3Vec3W rB = c->centerB;
@@ -1593,6 +1911,7 @@ void b3WarmStartContacts_Convex( b3SolverBlock block, b3StepContext* context )
 		}
 
 		// Central twist friction
+		if ( !b3AllZeroW( c->twistImpulse ) )
 		{
 			b3Vec3W impulse = b3MulSVW( c->twistImpulse, c->normal );
 			bA.w = b3MulSubMVW( bA.w, c->invIA, impulse );
@@ -1600,6 +1919,8 @@ void b3WarmStartContacts_Convex( b3SolverBlock block, b3StepContext* context )
 		}
 
 		// Rolling resistance
+		if ( !b3AllZeroW( c->rollingImpulse.X ) || !b3AllZeroW( c->rollingImpulse.Y ) ||
+			 !b3AllZeroW( c->rollingImpulse.Z ) )
 		{
 			b3Vec3W impulse = c->rollingImpulse;
 			bA.w = b3MulSubMVW( bA.w, c->invIA, impulse );
@@ -1700,6 +2021,8 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 
 			totalNormalImpulse = b3AddW( totalNormalImpulse, newImpulse );
 			totalTwistLimit = b3AddW( totalTwistLimit, b3MulW( cp->leverArms, newImpulse ) );
+			if ( b3AllZeroW( deltaImpulse ) )
+				continue;
 
 			// Apply contact impulse
 			b3Vec3W P = b3MulSVW( deltaImpulse, c->normal );
@@ -1712,6 +2035,19 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 		// No friction when applying bias
 		if ( useBias == false )
 		{
+			// If every SIMD lane has zero support and no cached Coulomb
+			// impulse to remove, the remaining wide solve is identically zero.
+			// Rolling resistance uses a separate angular limit, so it must be
+			// disabled in every lane for this whole-pack exit.
+			if ( b3AllZeroW( totalNormalImpulse ) && b3AllZeroW( c->twistImpulse ) &&
+				 b3AllZeroW( c->frictionImpulse.x ) && b3AllZeroW( c->frictionImpulse.y ) &&
+				 b3AllZeroW( c->rollingResistance ) )
+			{
+				b3ScatterBodies( states, c->indexA, &bA );
+				b3ScatterBodies( states, c->indexB, &bB );
+				continue;
+			}
+
 			// Rolling resistance
 			if ( b3AllZeroW( c->rollingResistance ) == false )
 			{
@@ -1741,9 +2077,12 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 				c->rollingImpulse = b3MulSVW( scale, c->rollingImpulse );
 
 				deltaImpulse = b3SubVW( c->rollingImpulse, oldImpulse );
-
-				bA.w = b3MulSubMVW( bA.w, c->invIA, deltaImpulse );
-				bB.w = b3MulAddMVW( bB.w, c->invIB, deltaImpulse );
+				if ( !b3AllZeroW( deltaImpulse.X ) || !b3AllZeroW( deltaImpulse.Y ) ||
+					 !b3AllZeroW( deltaImpulse.Z ) )
+				{
+					bA.w = b3MulSubMVW( bA.w, c->invIA, deltaImpulse );
+					bB.w = b3MulAddMVW( bB.w, c->invIB, deltaImpulse );
+				}
 			}
 
 			// Central twist friction
@@ -1754,10 +2093,12 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 				b3FloatW oldImpulse = c->twistImpulse;
 				c->twistImpulse = b3SymClampW( b3AddW( oldImpulse, deltaImpulse ), maxLambda );
 				deltaImpulse = b3SubW( c->twistImpulse, oldImpulse );
-
-				b3Vec3W L = b3MulSVW( deltaImpulse, c->normal );
-				bA.w = b3MulSubMVW( bA.w, c->invIA, L );
-				bB.w = b3MulAddMVW( bB.w, c->invIB, L );
+				if ( !b3AllZeroW( deltaImpulse ) )
+				{
+					b3Vec3W L = b3MulSVW( deltaImpulse, c->normal );
+					bA.w = b3MulSubMVW( bA.w, c->invIA, L );
+					bB.w = b3MulAddMVW( bB.w, c->invIB, L );
+				}
 			}
 
 			// Central friction
@@ -1809,11 +2150,14 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 				c->frictionImpulse = newImpulse;
 
 				// Apply delta impulse
-				b3Vec3W P = b3AddVW( b3MulSVW( deltaImpulse.x, tangent1 ), b3MulSVW( deltaImpulse.y, tangent2 ) );
-				bA.w = b3MulSubMVW( bA.w, c->invIA, b3CrossW( rA, P ) );
-				bA.v = b3MulSubSVW( bA.v, c->invMassA, P );
-				bB.w = b3MulAddMVW( bB.w, c->invIB, b3CrossW( rB, P ) );
-				bB.v = b3MulAddSVW( bB.v, c->invMassB, P );
+				if ( !b3AllZeroW( deltaImpulse.x ) || !b3AllZeroW( deltaImpulse.y ) )
+				{
+					b3Vec3W P = b3AddVW( b3MulSVW( deltaImpulse.x, tangent1 ), b3MulSVW( deltaImpulse.y, tangent2 ) );
+					bA.w = b3MulSubMVW( bA.w, c->invIA, b3CrossW( rA, P ) );
+					bA.v = b3MulSubSVW( bA.v, c->invMassA, P );
+					bB.w = b3MulAddMVW( bB.w, c->invIB, b3CrossW( rB, P ) );
+					bB.v = b3MulAddSVW( bB.v, c->invMassB, P );
+				}
 			}
 		}
 

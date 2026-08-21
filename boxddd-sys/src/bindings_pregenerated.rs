@@ -170,23 +170,23 @@ pub const B3_CONTACT_RECYCLE_ANGULAR_DISTANCE: f64 = 0.99240388;
 pub const B3_AABB_MARGIN_FRACTION: f64 = 0.125;
 pub const B3_TIME_TO_SLEEP: f64 = 0.5;
 pub const B3_MAX_MANIFOLD_POINTS: u32 = 4;
-pub const B3_MAX_SHAPE_CAST_POINTS: u32 = 64;
 pub const B3_GYROSCOPIC_ITERATIONS: u32 = 1;
 pub const B3_MAX_HULL_VERTICES: u32 = 128;
 pub const B3_MAX_HULL_FACES: u32 = 128;
 pub const B3_MAX_HULL_EDGES: u32 = 128;
 pub const B3_PARALLEL_EDGE_TOL: f64 = 0.005;
+pub const B3_MAX_SHAPE_CAST_POINTS: u32 = 128;
 pub const B3_SHAPE_POWER: u32 = 22;
 pub const B3_CHILD_POWER: u32 = 20;
 pub const B3_MAX_SHAPES: u32 = 4194304;
 pub const B3_MAX_CHILD_SHAPES: u32 = 1048576;
 pub const B3_RESTITUTION_ITERATIONS: u32 = 1;
 pub const B3_DYNAMIC_TREE_VERSION: i64 = -7787375179321898166;
-pub const B3_HULL_VERSION: i64 = -2715301031560262655;
-pub const B3_MESH_VERSION: i64 = -6066037853393090451;
+pub const B3_HULL_VERSION: u64 = 5353818467820062812;
+pub const B3_MESH_VERSION: i64 = -6148651537399239945;
 pub const B3_HEIGHT_FIELD_HOLE: u32 = 255;
-pub const B3_HEIGHT_FIELD_VERSION: i64 = -8423759003537458044;
-pub const B3_COMPOUND_VERSION: u64 = 6012353156626885901;
+pub const B3_HEIGHT_FIELD_VERSION: i64 = -8196016980499085064;
+pub const B3_COMPOUND_VERSION: i64 = -4460975412889416758;
 pub const B3_MAX_COMPOUND_MESH_MATERIALS: u32 = 4;
 /** Prototype for user allocation function.
 	@param size the allocation size in bytes
@@ -293,6 +293,14 @@ pub struct b3Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+}
+/// A three-dimensional integer grid coordinate.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3Vec3i {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 /** Cosine and sine pair.
  This uses a custom implementation designed for cross-platform determinism.*/
@@ -502,6 +510,11 @@ pub struct b3ContactId {
     pub world0: u16,
     pub padding: i16,
     pub generation: u32,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3VoxelData {
+    _unused: [u8; 0],
 }
 /** Task interface
  This is the prototype for a Box3D task. Your task system is expected to run this callback on a worker thread,
@@ -928,8 +941,10 @@ pub const b3ShapeType_b3_hullShape: b3ShapeType = 3;
 pub const b3ShapeType_b3_meshShape: b3ShapeType = 4;
 /// A sphere with an offset
 pub const b3ShapeType_b3_sphereShape: b3ShapeType = 5;
+/// A sparse grid of solid voxels
+pub const b3ShapeType_b3_voxelShape: b3ShapeType = 6;
 /// The number of shape types
-pub const b3ShapeType_b3_shapeTypeCount: b3ShapeType = 6;
+pub const b3ShapeType_b3_shapeTypeCount: b3ShapeType = 7;
 /** Shape type
  @ingroup shape*/
 pub type b3ShapeType = ::std::os::raw::c_uint;
@@ -962,7 +977,8 @@ pub struct b3ShapeDef {
  @note Sensor events are disabled by default.
  @see enableSensorEvents*/
     pub isSensor: bool,
-    /// Enable sensor events for this shape. This applies to sensors and non-sensors. False by default, even for sensors.
+    /** Enable sensor events for this shape. This applies to sensors and non-sensors. False by default, even for sensors.
+ Only convex shapes may act as sensor visitors.*/
     pub enableSensorEvents: bool,
     /// Enable contact events for this shape. Only applies to kinematic and dynamic bodies. Ignored for sensors. False by default.
     pub enableContactEvents: bool,
@@ -1020,6 +1036,75 @@ pub struct b3Profile {
     pub sleepIslands: f32,
     pub sensors: f32,
 }
+/** Per-step counters for voxel collision diagnostics.
+ @ingroup world*/
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3VoxelCounters {
+    pub voxelVoxelCalls: ::std::os::raw::c_int,
+    pub voxelConvexCalls: ::std::os::raw::c_int,
+    pub queryCalls: ::std::os::raw::c_int,
+    pub chunksVisited: ::std::os::raw::c_int,
+    pub occupiedEntriesScanned: ::std::os::raw::c_int,
+    pub cellsReturned: ::std::os::raw::c_int,
+    pub countFillRescans: ::std::os::raw::c_int,
+    pub obbTests: ::std::os::raw::c_int,
+    pub convexLeafTests: ::std::os::raw::c_int,
+    pub hullSatCalls: ::std::os::raw::c_int,
+    pub hullSatCacheHits: ::std::os::raw::c_int,
+    pub rawContactPoints: ::std::os::raw::c_int,
+    pub surfaceRejects: ::std::os::raw::c_int,
+    pub deepOverlapFallbacks: ::std::os::raw::c_int,
+    pub ccdEncounters: ::std::os::raw::c_int,
+    pub ccdBroadPhaseVisits: ::std::os::raw::c_int,
+    pub ccdConvexTargets: ::std::os::raw::c_int,
+    pub ccdAggregateTargets: ::std::os::raw::c_int,
+    pub ccdCellsVisited: ::std::os::raw::c_int,
+    pub ccdInteriorRejects: ::std::os::raw::c_int,
+    pub ccdCorridorRejects: ::std::os::raw::c_int,
+    pub ccdExactToiCalls: ::std::os::raw::c_int,
+    pub reducerOverflowInsertions: ::std::os::raw::c_int,
+    pub normalClusters: ::std::os::raw::c_int,
+    pub emittedManifolds: ::std::os::raw::c_int,
+    pub emittedPoints: ::std::os::raw::c_int,
+    pub persistedPoints: ::std::os::raw::c_int,
+    pub manifoldReallocations: ::std::os::raw::c_int,
+    pub scalarContacts: ::std::os::raw::c_int,
+    pub singleManifoldContacts: ::std::os::raw::c_int,
+    pub solverClassChanges: ::std::os::raw::c_int,
+    pub patchVisits: ::std::os::raw::c_int,
+    pub patchUniqueKeys: ::std::os::raw::c_int,
+    pub patchDuplicateVisits: ::std::os::raw::c_int,
+    pub patchEligibleVisits: ::std::os::raw::c_int,
+    pub patchEligibleUniqueKeys: ::std::os::raw::c_int,
+    pub patchMaxMultiplicity: ::std::os::raw::c_int,
+    pub patchMaxUniqueKeys: ::std::os::raw::c_int,
+    pub patchMultiplicityCounts: [::std::os::raw::c_int; 6usize],
+    pub patchTopologyPairs: [::std::os::raw::c_int; 16usize],
+    pub patchSatFaceAxes: ::std::os::raw::c_int,
+    pub patchSatEdgeAxes: ::std::os::raw::c_int,
+    pub patchSatSeparations: ::std::os::raw::c_int,
+    pub topologyPrunedPairs: ::std::os::raw::c_int,
+    pub representedLeafPairs: ::std::os::raw::c_int,
+    pub pseudoSatCalls: ::std::os::raw::c_int,
+    pub pseudoSeparatedKeys: ::std::os::raw::c_int,
+    pub selectedPatchKeys: ::std::os::raw::c_int,
+    pub emptySelectedPatchKeys: ::std::os::raw::c_int,
+    pub pseudoWitnessRejects: ::std::os::raw::c_int,
+    pub pseudoDepthRejects: ::std::os::raw::c_int,
+    pub pseudoLateSelections: ::std::os::raw::c_int,
+    pub patchBudgetOverflows: ::std::os::raw::c_int,
+    pub emittedPatchManifolds: ::std::os::raw::c_int,
+    pub workspaceKeyHits: ::std::os::raw::c_int,
+    pub workspaceKeyMisses: ::std::os::raw::c_int,
+    pub exactPatchPersistedPoints: ::std::os::raw::c_int,
+    pub featureRemapRejects: ::std::os::raw::c_int,
+    pub emptyPatchFallbackKeys: ::std::os::raw::c_int,
+    pub patchLeafFallbackTests: ::std::os::raw::c_int,
+    pub patchTableGrowths: ::std::os::raw::c_int,
+    pub patchScratchPeakBytes: ::std::os::raw::c_int,
+    pub adaptiveLeafPairs: ::std::os::raw::c_int,
+}
 /** Counters that give details of the simulation size.
  @ingroup world*/
 #[repr(C)]
@@ -1040,6 +1125,7 @@ pub struct b3Counters {
     pub taskCount: ::std::os::raw::c_int,
     pub colorCounts: [::std::os::raw::c_int; 24usize],
     pub manifoldCounts: [::std::os::raw::c_int; 8usize],
+    pub voxel: b3VoxelCounters,
     /** Number of contacts touched by the collide pass
  graph contacts + awake-set non-touching*/
     pub awakeContactCount: ::std::os::raw::c_int,
@@ -1600,6 +1686,42 @@ pub struct b3ContactData {
     pub manifolds: *const b3Manifold,
     /// The number of contact manifolds. For mesh and height-field collision there can be multiple manifolds.
     pub manifoldCount: ::std::os::raw::c_int,
+}
+/// Read-only sleep-state sample for one body, copied by b3World_GetBodySleepData.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3BodySleepData {
+    /// The body id.
+    pub bodyId: b3BodyId,
+    /// Seconds this body has continuously stayed below its sleep threshold.
+    pub sleepTime: f32,
+    /// The body's most recent sleep velocity measure (updated while awake).
+    pub sleepVelocity: f32,
+    /** Id of the island containing this body, or -1 when the body is not in
+ an island (static bodies are never in islands).*/
+    pub islandId: ::std::os::raw::c_int,
+}
+/// Read-only sleep census for one island, copied by b3World_GetIslandCensusData.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3IslandCensus {
+    /// The island id.
+    pub islandId: ::std::os::raw::c_int,
+    /// Number of bodies in the island.
+    pub bodyCount: ::std::os::raw::c_int,
+    /// Number of contacts in the island.
+    pub contactCount: ::std::os::raw::c_int,
+    /** Number of constraints removed from this island since it was created or
+ last split. A non-zero count blocks sleep for multi-body islands.*/
+    pub constraintRemoveCount: ::std::os::raw::c_int,
+    /// Smallest sleep time across the island's bodies, in seconds.
+    pub minSleepTime: f32,
+    /** The body holding the smallest sleep time, i.e. the body currently
+ keeping the island awake. Null when the island has no bodies.*/
+    pub minSleepTimeBody: b3BodyId,
+    /** Number of bodies whose sleep time has reached the engine time-to-sleep
+ duration (the per-body qualification for island sleep).*/
+    pub sleepReadyCount: ::std::os::raw::c_int,
 }
 /** The query filter is used to filter collisions between queries and shapes. For example,
  you may want a ray-cast representing a projectile to hit players and the static environment
@@ -2163,10 +2285,8 @@ pub struct b3HullFace {
 pub struct b3HullData {
     /// Version must be first and match B3_HULL_VERSION
     pub version: u64,
-    /// The total number of bytes for this hull.
-    pub byteCount: ::std::os::raw::c_int,
     /// Hash of this hull (this field is zero when the hash is computed).
-    pub hash: u32,
+    pub hash: u64,
     /// Axis-aligned box in local space.
     pub aabb: b3AABB,
     /// Surface area, typically in squared meters.
@@ -2180,28 +2300,27 @@ pub struct b3HullData {
     /// The inertia tensor about the centroid.
     pub centralInertia: b3Matrix3,
     /// The vertex count.
-    pub vertexCount: ::std::os::raw::c_int,
+    pub vertexCount: i32,
     /// Offset of the vertex array in bytes from the struct address.
-    pub vertexOffset: ::std::os::raw::c_int,
+    pub vertexOffset: i32,
     /// Offset of the point array in bytes from the struct address.
-    pub pointOffset: ::std::os::raw::c_int,
+    pub pointOffset: i32,
     /// This is the half-edge count (double the edge count)
-    pub edgeCount: ::std::os::raw::c_int,
+    pub edgeCount: i32,
     /// Offset of the edge array in bytes from the struct address.
-    pub edgeOffset: ::std::os::raw::c_int,
+    pub edgeOffset: i32,
     /// The face count. Hulls faces are convex polygons.
-    pub faceCount: ::std::os::raw::c_int,
+    pub faceCount: i32,
     /// Offset of the face plane array in bytes from the struct address.
-    pub planeOffset: ::std::os::raw::c_int,
+    pub planeOffset: i32,
     /// Offset of the face array in bytes from the struct address.
-    pub faceOffset: ::std::os::raw::c_int,
+    pub faceOffset: i32,
     /// Offset of structure of array (SOA) vertices
-    pub soaVertexOffset: ::std::os::raw::c_int,
+    pub soaVertexOffset: i32,
     /// Offset of structure of array (SOA) unit normal vectors
-    pub soaNormalOffset: ::std::os::raw::c_int,
-    /** Explicit padding. Hull identity is a content hash and memcmp over raw bytes,
- so there must be no unnamed padding for struct copies to scramble.*/
-    pub padding: ::std::os::raw::c_int,
+    pub soaNormalOffset: i32,
+    /// The total number of bytes for this hull.
+    pub byteCount: i32,
 }
 /// Efficient box hull
 #[repr(C)]
@@ -2219,8 +2338,8 @@ pub struct b3BoxHull {
     pub boxPlanes: [b3Plane; 6usize],
     ///< Box faces.
     pub boxFaces: [b3HullFace; 6usize],
-    ///< Explicit padding, see b3HullData::padding.
-    pub padding: [u8; 10usize],
+    ///< Explicit padding.
+    pub padding: [u8; 2usize],
     ///< vertex x
     pub vx: [f32; 8usize],
     ///< vertex y
@@ -2234,11 +2353,12 @@ pub struct b3BoxHull {
     ///< normal z, padded to multiple of 4
     pub nz: [f32; 8usize],
 }
-/// This is used to create a re-usable collision mesh.
+/** This is used to create a re-usable collision mesh. No pointers
+ are held to this data in b3MeshData. So all this data can be temporary.*/
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3MeshDef {
-    /// Triangle vertices
+    /// Triangle vertices.
     pub vertices: *mut b3Vec3,
     /// Triangle vertex indices. 3 for each triangle. CCW winding.
     pub indices: *mut i32,
@@ -2526,36 +2646,38 @@ impl b3MeshNode__bindgen_ty_1__bindgen_ty_2 {
 pub struct b3MeshData {
     /// Version must be first.
     pub version: u64,
-    /// The total number of bytes for this mesh.
-    pub byteCount: ::std::os::raw::c_int,
     /// Hash of this mesh (this field is zero when the hash is computed)
-    pub hash: u32,
+    pub hash: u64,
+    /// The total number of bytes for this mesh.
+    pub byteCount: i32,
     /// Local axis-aligned box.
     pub bounds: b3AABB,
     /// Combined surface area of all triangles. Single-sided.
     pub surfaceArea: f32,
     /// The height of the bounding volume hierarchy.
-    pub treeHeight: ::std::os::raw::c_int,
+    pub treeHeight: i32,
     /// The number of degenerate triangles. Diagnostic.
-    pub degenerateCount: ::std::os::raw::c_int,
+    pub degenerateCount: i32,
     /// Offset of the node array in bytes from the struct address.
-    pub nodeOffset: ::std::os::raw::c_int,
+    pub nodeOffset: i32,
     /// The number of BVH nodes.
-    pub nodeCount: ::std::os::raw::c_int,
+    pub nodeCount: i32,
     /// Offset of the vertex array in bytes from the struct address.
-    pub vertexOffset: ::std::os::raw::c_int,
+    pub vertexOffset: i32,
     /// The number of vertices.
-    pub vertexCount: ::std::os::raw::c_int,
+    pub vertexCount: i32,
     /// Offset of the triangle array in bytes from the struct address.
-    pub triangleOffset: ::std::os::raw::c_int,
+    pub triangleOffset: i32,
     /// The number of triangles.
-    pub triangleCount: ::std::os::raw::c_int,
+    pub triangleCount: i32,
     /// Offset of the material array in bytes from the struct address.
-    pub materialOffset: ::std::os::raw::c_int,
+    pub materialOffset: i32,
     /// The number of materials.
-    pub materialCount: ::std::os::raw::c_int,
+    pub materialCount: i32,
     /// Offset of the triangle flag array in bytes from the struct address.
-    pub flagsOffset: ::std::os::raw::c_int,
+    pub flagsOffset: i32,
+    /// Explicit padding.
+    pub padding: i32,
 }
 /// This allows mesh data to be re-used with different scales.
 #[repr(C)]
@@ -2567,7 +2689,7 @@ pub struct b3Mesh {
  no component may be very small in magnitude.*/
     pub scale: b3Vec3,
 }
-/// Data used to create a height field
+/// Data used to create a height field. No pointers are held to this data.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3HeightFieldDef {
@@ -2602,10 +2724,10 @@ pub struct b3HeightFieldDef {
 pub struct b3HeightFieldData {
     /// Version must be first and match B3_HEIGHT_FIELD_VERSION
     pub version: u64,
+    /// Hash of this height field (this field is zero when the hash is computed).
+    pub hash: u64,
     /// The total number of bytes for this height field.
     pub byteCount: ::std::os::raw::c_int,
-    /// Hash of this height field (this field is zero when the hash is computed).
-    pub hash: u32,
     /// The local axis-aligned bounding box.
     pub aabb: b3AABB,
     /// The minimum y value.
@@ -2617,23 +2739,22 @@ pub struct b3HeightFieldData {
     /// The overall scale.
     pub scale: b3Vec3,
     /// The number of grid columns along the local x-axis.
-    pub columnCount: ::std::os::raw::c_int,
+    pub columnCount: i32,
     /// The number of grid rows along the local z-axis.
-    pub rowCount: ::std::os::raw::c_int,
+    pub rowCount: i32,
     /** Offset of the compressed height array in bytes from the struct address.
  uint16_t, one per grid point.*/
-    pub heightsOffset: ::std::os::raw::c_int,
+    pub heightsOffset: i32,
     /** Offset of the material index array in bytes from the struct address.
  uint8_t, one per cell.*/
-    pub materialOffset: ::std::os::raw::c_int,
+    pub materialOffset: i32,
     /** Offset of the flag array in bytes from the struct address.
  uint8_t, one per triangle.*/
-    pub flagsOffset: ::std::os::raw::c_int,
+    pub flagsOffset: i32,
     /// Triangle winding.
-    pub clockwise: bool,
-    /** Explicit padding. Identity is a content hash over raw bytes, so there must
- be no unnamed padding for struct copies to scramble.*/
-    pub padding: [u8; 3usize],
+    pub clockwise: u8,
+    /// Explicit padding.
+    pub padding: [u8; 7usize],
 }
 /// Definition for a capsule in a compound shape.
 #[repr(C)]
@@ -3172,6 +3293,8 @@ pub union b3DebugShape__bindgen_ty_1 {
     pub mesh: *const b3Mesh,
     ///< Sphere shape.
     pub sphere: *const b3Sphere,
+    ///< Sparse voxel-grid shape.
+    pub voxel: *const b3VoxelData,
 }
 /** This struct is passed to b3World_Draw to draw a debug view of the simulation world.
  Callbacks receive world coordinates. In large world mode the translation is double precision so
@@ -4090,6 +4213,16 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    /// Collide sparse voxel data and a convex hull. The returned manifold is in the voxel frame and its normal points voxel to hull.
+    pub fn b3CollideVoxelAndHull(
+        manifold: *mut b3LocalManifold,
+        capacity: ::std::os::raw::c_int,
+        voxelA: *const b3VoxelData,
+        hullB: *const b3HullData,
+        transformBtoA: b3Transform,
+    );
+}
+unsafe extern "C" {
     /// Collide a triangle and capsule. Normal points from triangle to capsule.
     pub fn b3CollideTriangleAndCapsule(
         manifold: *mut b3LocalManifold,
@@ -4141,6 +4274,47 @@ unsafe extern "C" {
         planes: *const b3CollisionPlane,
         count: ::std::os::raw::c_int,
     ) -> b3Vec3;
+}
+unsafe extern "C" {
+    pub fn b3CreateVoxelData(
+        cells: *const b3Vec3i,
+        count: ::std::os::raw::c_int,
+        voxelSize: f32,
+    ) -> *mut b3VoxelData;
+}
+unsafe extern "C" {
+    /// Create voxel data whose integer cell centers are translated by localOrigin.
+    pub fn b3CreateOffsetVoxelData(
+        cells: *const b3Vec3i,
+        count: ::std::os::raw::c_int,
+        voxelSize: f32,
+        localOrigin: b3Vec3,
+    ) -> *mut b3VoxelData;
+}
+unsafe extern "C" {
+    pub fn b3DestroyVoxelData(voxels: *mut b3VoxelData);
+}
+unsafe extern "C" {
+    pub fn b3VoxelData_GetCellCount(voxels: *const b3VoxelData) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn b3VoxelData_GetVoxelSize(voxels: *const b3VoxelData) -> f32;
+}
+unsafe extern "C" {
+    pub fn b3VoxelData_GetOrigin(voxels: *const b3VoxelData) -> b3Vec3;
+}
+unsafe extern "C" {
+    pub fn b3VoxelData_GetBounds(voxels: *const b3VoxelData) -> b3AABB;
+}
+unsafe extern "C" {
+    pub fn b3VoxelData_IsSolid(voxels: *const b3VoxelData, cell: b3Vec3i) -> bool;
+}
+unsafe extern "C" {
+    pub fn b3VoxelData_GetCells(
+        voxels: *const b3VoxelData,
+        cells: *mut b3Vec3i,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     /** Create a world for rigid body simulation. A world contains bodies, shapes, and constraints. You may create
@@ -4195,6 +4369,42 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Get contact events for this current time step. The event data is transient. Do not store a reference to this data.
     pub fn b3World_GetContactEvents(worldId: b3WorldId) -> b3ContactEvents;
+}
+unsafe extern "C" {
+    /// Get a conservative capacity for all current touching contacts in the world.
+    pub fn b3World_GetContactCapacity(worldId: b3WorldId) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    /// Copy all current touching contacts in the world, visiting each pair once.
+    pub fn b3World_GetContactData(
+        worldId: b3WorldId,
+        contactData: *mut b3ContactData,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    /// Get a conservative capacity for the per-body sleep data in the world.
+    pub fn b3World_GetBodySleepCapacity(worldId: b3WorldId) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    /// Copy the current sleep state of every enabled body. Read-only observation data.
+    pub fn b3World_GetBodySleepData(
+        worldId: b3WorldId,
+        sleepData: *mut b3BodySleepData,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    /// Get a conservative capacity for the island census data in the world.
+    pub fn b3World_GetIslandCensusCapacity(worldId: b3WorldId) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    /// Copy a sleep census of every island (awake or sleeping). Read-only observation data.
+    pub fn b3World_GetIslandCensusData(
+        worldId: b3WorldId,
+        censusData: *mut b3IslandCensus,
+        capacity: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     /// Get the joint events for the current time step. The event data is transient. Do not store a reference to this data.
@@ -4476,6 +4686,29 @@ unsafe extern "C" {
     /// This is for internal testing
     pub fn b3World_EnableSpeculative(worldId: b3WorldId, flag: bool);
 }
+unsafe extern "C" {
+    /** Serialize `worldId` into a freshly allocated buffer. Returns NULL on failure.
+ The caller owns the result and must release it with b3FreeSaveState.
+ `size` receives the byte count.*/
+    pub fn b3World_SaveState(
+        worldId: b3WorldId,
+        size: *mut ::std::os::raw::c_int,
+    ) -> *mut u8;
+}
+unsafe extern "C" {
+    /// Release a buffer returned by b3World_SaveState.
+    pub fn b3FreeSaveState(data: *mut u8, size: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    /** Overwrite `worldId` with the state in `[data, size)`. The target must be a
+ world created with the same definition (a "shell"); its existing contents are
+ discarded. Returns false on a corrupt or incompatible image.*/
+    pub fn b3World_LoadState(
+        worldId: b3WorldId,
+        data: *const u8,
+        size: ::std::os::raw::c_int,
+    ) -> bool;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct b3Recording {
@@ -4571,7 +4804,7 @@ unsafe extern "C" {
  Replaying at a different count re-partitions the constraint graph, so the StateHash check
  becomes a cross-thread determinism test. Adjustable later with b3RecPlayer_SetWorkerCount.
  @return a new player, or NULL on bad header or deserialization failure*/
-    pub fn b3RecPlayer_Create(
+    pub fn b3CreatePlayer(
         data: *const ::std::os::raw::c_void,
         size: ::std::os::raw::c_int,
         workerCount: ::std::os::raw::c_int,
@@ -4579,7 +4812,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     /// Destroy the player and free all memory. Restores the previous global length scale.
-    pub fn b3RecPlayer_Destroy(player: *mut b3RecPlayer);
+    pub fn b3DestroyPlayer(player: *mut b3RecPlayer);
 }
 unsafe extern "C" {
     /** Advance one frame. dispatch ops until the next Step completes.
@@ -4701,7 +4934,7 @@ unsafe extern "C" {
     /** Wire host debug-shape callbacks into the player's replay world so a renderer can build
  per-shape draw resources (the 3D sample needs this or the replay world draws nothing).
  Rebuilds the current world under the new callbacks and rewinds to frame 0, so call it
- once right after b3RecPlayer_Create and re-read the world id afterward. The callbacks
+ once right after b3CreatePlayer and re-read the world id afterward. The callbacks
  persist across Restart and backward seeks, which recreate the world internally.
  @param player the player to configure
  @param createDebugShape called when a replayed shape is added; returns a user draw handle
@@ -5283,6 +5516,17 @@ unsafe extern "C" {
     ) -> b3ShapeId;
 }
 unsafe extern "C" {
+    /** Create a sparse voxel-grid shape and attach it to a body. The shape definition is fully cloned but the voxel data is not.
+ Contacts are not created until the next time step.
+ @warning this holds a reference to the input voxel data which must remain valid for the lifetime of this shape
+ @return the shape id for accessing the shape*/
+    pub fn b3CreateVoxelShape(
+        bodyId: b3BodyId,
+        def: *const b3ShapeDef,
+        voxels: *const b3VoxelData,
+    ) -> b3ShapeId;
+}
+unsafe extern "C" {
     /** Baked compound shapes are only allowed on static bodies.
  Note: runtime compounds are achieved by adding multiple shapes to a body.
  Runtime compounds can be dynamic and/or kinematic.*/
@@ -5473,6 +5717,10 @@ unsafe extern "C" {
     pub fn b3Shape_GetHeightField(shapeId: b3ShapeId) -> *const b3HeightFieldData;
 }
 unsafe extern "C" {
+    /// Get the shape's sparse voxel data. Asserts the type is correct.
+    pub fn b3Shape_GetVoxel(shapeId: b3ShapeId) -> *const b3VoxelData;
+}
+unsafe extern "C" {
     /** Allows you to change a shape to be a sphere or update the current sphere.
  This does not modify the mass properties.
  @see b3Body_ApplyMassFromShapes*/
@@ -5539,6 +5787,13 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Get the current world AABB
     pub fn b3Shape_GetAABB(shapeId: b3ShapeId) -> b3AABB;
+}
+unsafe extern "C" {
+    /** Get the enlarged (fat) world AABB the broad-phase proxy is stored with.
+ This always contains b3Shape_GetAABB and is the bound the broad-phase tree
+ tests overlap queries against, so a query that reports this shape can be
+ re-tested against a narrower AABB without consulting the tree again.*/
+    pub fn b3Shape_GetFatAABB(shapeId: b3ShapeId) -> b3AABB;
 }
 unsafe extern "C" {
     /// Compute the mass data for a shape

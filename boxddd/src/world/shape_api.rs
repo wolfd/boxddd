@@ -270,6 +270,21 @@ impl World {
         }))
     }
 
+    /// Tries to return the shape's enlarged (fat) world-space AABB — the bound
+    /// its broad-phase proxy is stored with.
+    ///
+    /// This always contains [`Self::shape_aabb`], and it is the AABB the
+    /// broad-phase tree tests overlap queries against. A caller that issues one
+    /// widened overlap query and then re-tests each reported shape against a
+    /// narrower AABB must use THIS bound to reproduce the tree's own leaf test;
+    /// the tight AABB would under-select.
+    pub fn shape_fat_aabb(&self, shape_id: ShapeId) -> Result<Aabb> {
+        let _call = self.enter_shape_call(shape_id)?;
+        Ok(Aabb::from_raw(unsafe {
+            ffi::b3Shape_GetFatAABB(shape_id.into_raw())
+        }))
+    }
+
     /// Tries to ray cast against a single shape.
     pub fn shape_cast_ray(
         &self,
@@ -455,6 +470,20 @@ impl World {
             Some(ShapeResource::Compound { _data }) => Ok(_data),
             _ => Err(Error::NativeFailure),
         }
+    }
+
+    /// Tries to borrow the sparse occupancy data backing a voxel shape.
+    ///
+    /// The view reads the shape's native geometry directly, so it also works
+    /// for shapes restored from [`World::load_state`] whose geometry is owned
+    /// by the loaded world image rather than a Rust construction sidecar.
+    pub fn shape_voxel(&self, shape_id: ShapeId) -> Result<ShapeVoxel<'_>> {
+        let _call = self.enter_shape_call(shape_id)?;
+        ensure_shape_type(shape_id, ShapeType::Voxel)?;
+        let raw = unsafe { ffi::b3Shape_GetVoxel(shape_id.into_raw()) };
+        unsafe { raw.as_ref() }
+            .map(ShapeVoxel::from_raw)
+            .ok_or(Error::NativeFailure)
     }
 
     /// Tries to replace a shape's geometry with a sphere.

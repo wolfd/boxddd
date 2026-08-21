@@ -397,13 +397,13 @@ fn build_box3d_from_source(config: &BuildConfig) {
             .any(|feature| feature == "crt-static");
         build.static_crt(use_static_crt);
         build.debug(config.is_debug());
-        build.opt_level(if config.is_debug() { 0 } else { 2 });
+        build.opt_level(if config.is_debug() { 0 } else { 3 });
         add_msvc_c_standard_flag(&mut build);
     } else {
         build.flag_if_supported("-std=c17");
         build.flag_if_supported("-ffp-contract=off");
         build.debug(config.is_debug());
-        build.opt_level(if config.is_debug() { 0 } else { 2 });
+        build.opt_level(if config.is_debug() { 0 } else { 3 });
         if config.target_os == "linux" {
             build.define("_POSIX_C_SOURCE", Some("199309L"));
             build.flag_if_supported("-pthread");

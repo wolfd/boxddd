@@ -17,6 +17,7 @@
 #include "parallel_for.h"
 #include "platform.h"
 #include "recording.h"
+#include "recording_replay.h"
 #include "scheduler.h"
 #include "sensor.h"
 #include "shape.h"
@@ -253,6 +254,13 @@ b3WorldId b3CreateWorld( const b3WorldDef* def )
 	b3Array_Reserve( world->manifoldAllocators, 16 );
 	world->manifoldAllocatorMutex = b3CreateMutex();
 
+	// FORK: one park semaphore per possible worker index. See b3SolverTask.
+	for ( int i = 0; i < B3_MAX_WORKERS; ++i )
+	{
+		world->workerParkSemaphores[i] = b3CreateSemaphore( 0 );
+	}
+	b3AtomicStoreU32( &world->parkedWorkerMask, 0 );
+
 	b3CreateBroadPhase( &world->broadPhase, &def->capacity );
 	b3CreateGraph( &world->constraintGraph, 16 );
 
@@ -466,7 +474,11 @@ void b3DestroyWorld( b3WorldId worldId )
 		b3Contact* contact = contacts + i;
 		if ( contact->contactId != B3_NULL_INDEX )
 		{
-			if ( contact->flags & b3_simMeshContact )
+			if ( contact->flags & b3_simVoxelContact )
+			{
+				b3Array_Destroy( contact->voxelContact.states );
+			}
+			else if ( contact->flags & b3_simMeshContact )
 			{
 				b3Array_Destroy( contact->meshContact.triangleCache );
 			}
@@ -523,7 +535,19 @@ void b3DestroyWorld( b3WorldId worldId )
 	b3Array_Destroy( world->manifoldAllocators );
 	b3DestroyMutex( world->manifoldAllocatorMutex );
 
+	// FORK: no worker can be parked here — the step that could park them has
+	// returned. A stray permit from a raced wake is harmless (count above the initial
+	// count is what libdispatch tolerates; below it is what aborts).
+	for ( int i = 0; i < B3_MAX_WORKERS; ++i )
+	{
+		b3DestroySemaphore( world->workerParkSemaphores[i] );
+	}
+
 	b3DestroyStack( &world->stack );
+
+	// Standalone snapshot geometry is borrowed by shapes, so release it only
+	// after all shape teardown is complete.
+	b3RecFreeSlots( world->snapshotGeometrySlots, world->snapshotGeometrySlotCount );
 
 	// Wipe world but preserve generation
 	uint16_t generation = world->generation;
@@ -617,7 +641,11 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 		bool isStaticA = bodyA->type == b3_staticBody;
 		bool isStaticB = bodyB->type == b3_staticBody;
 		bool wasTouching = ( contact->flags & b3_simTouchingFlag );
-		bool isMeshContact = ( contact->flags & b3_simMeshContact );
+		// Solver lane and geometry type are separate for voxel contacts: a
+		// single-manifold voxel contact can use the wide convex solver, but it
+		// still needs the conservative fast-body recycling rule used by
+		// non-convex geometry.
+		bool isNonConvexContact = ( contact->flags & ( b3_simMeshContact | b3_simVoxelContact ) ) != 0;
 		b3BodySim* bodySimA;
 		b3BodySim* bodySimB;
 		if ( wasTouching )
@@ -655,9 +683,13 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 		// Contact recycling optimization. Please cite this library if you use this optimization.
 		// This is inspired by persistent contact manifolds used in some physics engines, such as PhysX.
 		// However, this allows larger relative motion and has fewer tuning parameters (just one).
-		if ( ( isFast == false || isMeshContact == false ) && recycleDistance > 0.0f &&
+		if ( ( isFast == false || isNonConvexContact == false ) && recycleDistance > 0.0f &&
 			 ( contact->flags & b3_relativeTransformValid ) && ( contact->flags & b3_contactRecycleFlag ) )
 		{
+			// The scalar part of b3InvMulQuat is just the quaternion dot product.
+			// cos(relative_angle/2) = scalar(conj(q1) * q2) = dot(q1, q2)
+			// A small relative angle means this value is close to 1. Need to use abs or square
+			// due to double cover.
 			float angleA = b3DotQuat( transformA.q, contact->cachedRotationA );
 			float angleB = b3DotQuat( transformB.q, contact->cachedRotationB );
 			float angularDistance = b3MinFloat( angleA * angleA, angleB * angleB );
@@ -743,14 +775,39 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 		bool touching = b3UpdateContact( world, workerIndex, contact, shapeA, bodySimA->localCenter, transformA, shapeB,
 										 bodySimB->localCenter, transformB, isFast, taskContext->arena );
 
+		if ( touching && ( contact->flags & b3_simVoxelContact ) )
+		{
+			bool scalar = contact->manifoldCount != 1;
+			if ( wasTouching )
+			{
+				bool wasScalar = ( contact->flags & b3_simMeshContact ) != 0;
+				if ( contact->colorIndex != B3_OVERFLOW_INDEX && scalar != wasScalar )
+				{
+					contact->flags |= b3_simSolverClassChanged;
+					b3SetBit( &taskContext->contactStateBitSet, contactIndex );
+				}
+			}
+			else if ( scalar )
+			{
+				contact->flags |= b3_simMeshContact;
+			}
+			else
+			{
+				contact->flags &= ~b3_simMeshContact;
+			}
+		}
+
 		int bucketIndex = b3MinInt( contact->manifoldCount, B3_CONTACT_MANIFOLD_COUNT_BUCKETS - 1 );
 		if ( bucketIndex > 0 )
 		{
 			taskContext->manifoldCounts[bucketIndex - 1] += 1;
 		}
 
-		// Update the mesh contact spec
-		if ( touching == true && wasTouching == true && ( contact->flags & b3_simMeshContact ) )
+		// Refresh every contact stored in the scalar graph array. Overflow contacts
+		// always use scalar storage even when their geometry is otherwise eligible
+		// for the wide solver.
+		if ( touching == true && wasTouching == true &&
+			 ( ( contact->flags & b3_simMeshContact ) || contact->colorIndex == B3_OVERFLOW_INDEX ) )
 		{
 			B3_ASSERT( contact->colorIndex != B3_NULL_INDEX );
 			B3_ASSERT( 0 <= contact->colorIndex && contact->colorIndex < B3_GRAPH_COLOR_COUNT );
@@ -880,6 +937,7 @@ static void b3Collide( b3StepContext* context )
 		b3SetBitCountAndClear( &taskContext->contactStateBitSet, contactIdCapacity );
 		taskContext->satCallCount = 0;
 		taskContext->satCacheHitCount = 0;
+		taskContext->voxelCounters = (b3VoxelCounters){ 0 };
 		taskContext->recycledContactCount = 0;
 		memset( taskContext->manifoldCounts, 0, sizeof( taskContext->manifoldCounts ) );
 	}
@@ -1015,6 +1073,14 @@ static void b3Collide( b3StepContext* context )
 				bool isMeshContact = contact->flags & b3_simMeshContact;
 				b3RemoveContactFromGraph( world, bodyIdA, bodyIdB, colorIndex, localIndex, isMeshContact );
 				contact = NULL;
+			}
+			else if ( flags & b3_simSolverClassChanged )
+			{
+				B3_ASSERT( flags & b3_simVoxelContact );
+				B3_ASSERT( flags & b3_contactTouchingFlag );
+				contact->flags &= ~b3_simSolverClassChanged;
+				b3ReclassifyContactInGraph( world, contact, contact->manifoldCount != 1 );
+				world->taskContexts.data[0].voxelCounters.solverClassChanges += 1;
 			}
 
 			// Clear the smallest set bit
@@ -1342,6 +1408,10 @@ static bool DrawQueryCallback( int proxyId, uint64_t userData, void* context )
 					debugShape.sphere = &shape->sphere;
 					shape->userShape = world->createDebugShape( &debugShape, world->userDebugShapeContext );
 					break;
+				case b3_voxelShape:
+					debugShape.voxel = shape->voxel;
+					shape->userShape = world->createDebugShape( &debugShape, world->userDebugShapeContext );
+					break;
 				default:
 					B3_ASSERT( false );
 					break;
@@ -1429,21 +1499,23 @@ void b3World_Draw( b3WorldId worldId, b3DebugDraw* draw, uint64_t maskBits )
 				const char* name = b3FindName( &world->names, body->nameId );
 				if ( name != NULL )
 				{
-					draw->DrawStringFcn( p, name, b3_colorOrange, draw->context );
+					draw->DrawStringFcn( p, name, b3_colorWhite, draw->context );
 				}
 			}
 
-			if ( draw->drawMass && body->type == b3_dynamicBody )
+			if ( draw->drawMass )
 			{
-				b3Vec3 offset = { 0.1f, 0.1f, 0.1f };
-
 				b3WorldTransform transform = { bodySim->center, bodySim->transform.q };
 				draw->DrawTransformFcn( transform, draw->context );
-				b3Pos p = b3TransformWorldPoint( transform, offset );
 
-				char buffer[32];
-				snprintf( buffer, 32, "  %.2f", body->mass );
-				draw->DrawStringFcn( p, buffer, b3_colorWhite, draw->context );
+				if ( body->type == b3_dynamicBody )
+				{
+					b3Vec3 offset = { 0.05f, 0.05f, 0.05f };
+					b3Pos p = b3TransformWorldPoint( transform, offset );
+					char buffer[32];
+					snprintf( buffer, 32, "%.2f", body->mass );
+					draw->DrawStringFcn( p, buffer, b3_colorWhite, draw->context );
+				}
 			}
 
 			if ( draw->drawSleep )
@@ -1802,6 +1874,164 @@ b3ContactEvents b3World_GetContactEvents( b3WorldId worldId )
 	};
 
 	return events;
+}
+
+int b3World_GetContactCapacity( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	return b3GetIdCount( &world->contactIdPool );
+}
+
+int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int capacity )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	int index = 0;
+	for ( int bodyId = 0; bodyId < world->bodies.count && index < capacity; ++bodyId )
+	{
+		b3Body* body = b3Array_Get( world->bodies, bodyId );
+		if ( body->id == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		int contactKey = body->headContactKey;
+		while ( contactKey != B3_NULL_INDEX && index < capacity )
+		{
+			int contactId = contactKey >> 1;
+			int edgeIndex = contactKey & 1;
+			b3Contact* contact = b3Array_Get( world->contacts, contactId );
+
+			// Each pair is linked from both bodies. The lower native body id
+			// owns the copy, avoiding a scan over the contact-id high-water
+			// mark after heavy contact churn.
+			int otherBodyId = contact->edges[edgeIndex ^ 1].bodyId;
+			if ( bodyId < otherBodyId && ( contact->flags & b3_contactTouchingFlag ) != 0 )
+			{
+				b3Shape* shapeA = b3Array_Get( world->shapes, contact->shapeIdA );
+				b3Shape* shapeB = b3Array_Get( world->shapes, contact->shapeIdB );
+				contactData[index].contactId = (b3ContactId){ contact->contactId + 1, world->worldId, 0, contact->generation };
+				contactData[index].shapeIdA = (b3ShapeId){ shapeA->id + 1, world->worldId, shapeA->generation };
+				contactData[index].shapeIdB = (b3ShapeId){ shapeB->id + 1, world->worldId, shapeB->generation };
+				contactData[index].manifolds = contact->manifolds;
+				contactData[index].manifoldCount = contact->manifoldCount;
+				index += 1;
+			}
+
+			contactKey = contact->edges[edgeIndex].nextKey;
+		}
+	}
+
+	B3_ASSERT( index <= capacity );
+	return index;
+}
+
+int b3World_GetBodySleepCapacity( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	return b3GetIdCount( &world->bodyIdPool );
+}
+
+int b3World_GetBodySleepData( b3WorldId worldId, b3BodySleepData* sleepData, int capacity )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	int index = 0;
+	for ( int bodyId = 0; bodyId < world->bodies.count && index < capacity; ++bodyId )
+	{
+		b3Body* body = b3Array_Get( world->bodies, bodyId );
+		if ( body->id == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		sleepData[index].bodyId = b3MakeBodyId( world, bodyId );
+		sleepData[index].sleepTime = body->sleepTime;
+		sleepData[index].sleepVelocity = body->sleepVelocity;
+		sleepData[index].islandId = body->islandId;
+		index += 1;
+	}
+
+	B3_ASSERT( index <= capacity );
+	return index;
+}
+
+int b3World_GetIslandCensusCapacity( b3WorldId worldId )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	return b3GetIdCount( &world->islandIdPool );
+}
+
+int b3World_GetIslandCensusData( b3WorldId worldId, b3IslandCensus* censusData, int capacity )
+{
+	b3World* world = b3GetUnlockedWorldFromId( worldId );
+	if ( world == NULL )
+	{
+		return 0;
+	}
+
+	int index = 0;
+	for ( int islandId = 0; islandId < world->islands.count && index < capacity; ++islandId )
+	{
+		b3Island* island = b3Array_Get( world->islands, islandId );
+		if ( island->setIndex == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		b3IslandCensus* census = censusData + index;
+		census->islandId = island->islandId;
+		census->bodyCount = island->bodies.count;
+		census->contactCount = island->contacts.count;
+		census->constraintRemoveCount = island->constraintRemoveCount;
+		census->minSleepTime = 0.0f;
+		census->minSleepTimeBody = b3_nullBodyId;
+		census->sleepReadyCount = 0;
+
+		for ( int i = 0; i < island->bodies.count; ++i )
+		{
+			int islandBodyId = island->bodies.data[i];
+			b3Body* body = b3Array_Get( world->bodies, islandBodyId );
+			if ( i == 0 || body->sleepTime < census->minSleepTime )
+			{
+				census->minSleepTime = body->sleepTime;
+				census->minSleepTimeBody = b3MakeBodyId( world, islandBodyId );
+			}
+
+			if ( body->sleepTime >= B3_TIME_TO_SLEEP )
+			{
+				census->sleepReadyCount += 1;
+			}
+		}
+
+		index += 1;
+	}
+
+	B3_ASSERT( index <= capacity );
+	return index;
 }
 
 b3JointEvents b3World_GetJointEvents( b3WorldId worldId )
@@ -2208,6 +2438,76 @@ b3Counters b3World_GetCounters( b3WorldId worldId )
 	s.rootIterations = 0;
 	for ( int i = 0; i < world->workerCount; ++i )
 	{
+		const b3VoxelCounters* v = &world->taskContexts.data[i].voxelCounters;
+		s.voxel.voxelVoxelCalls += v->voxelVoxelCalls;
+		s.voxel.voxelConvexCalls += v->voxelConvexCalls;
+		s.voxel.queryCalls += v->queryCalls;
+		s.voxel.chunksVisited += v->chunksVisited;
+		s.voxel.occupiedEntriesScanned += v->occupiedEntriesScanned;
+		s.voxel.cellsReturned += v->cellsReturned;
+		s.voxel.countFillRescans += v->countFillRescans;
+		s.voxel.obbTests += v->obbTests;
+		s.voxel.convexLeafTests += v->convexLeafTests;
+		s.voxel.hullSatCalls += v->hullSatCalls;
+		s.voxel.hullSatCacheHits += v->hullSatCacheHits;
+		s.voxel.rawContactPoints += v->rawContactPoints;
+		s.voxel.surfaceRejects += v->surfaceRejects;
+		s.voxel.deepOverlapFallbacks += v->deepOverlapFallbacks;
+		s.voxel.ccdEncounters += v->ccdEncounters;
+		s.voxel.ccdBroadPhaseVisits += v->ccdBroadPhaseVisits;
+		s.voxel.ccdConvexTargets += v->ccdConvexTargets;
+		s.voxel.ccdAggregateTargets += v->ccdAggregateTargets;
+		s.voxel.ccdCellsVisited += v->ccdCellsVisited;
+		s.voxel.ccdInteriorRejects += v->ccdInteriorRejects;
+		s.voxel.ccdCorridorRejects += v->ccdCorridorRejects;
+		s.voxel.ccdExactToiCalls += v->ccdExactToiCalls;
+		s.voxel.reducerOverflowInsertions += v->reducerOverflowInsertions;
+		s.voxel.normalClusters += v->normalClusters;
+		s.voxel.emittedManifolds += v->emittedManifolds;
+		s.voxel.emittedPoints += v->emittedPoints;
+		s.voxel.persistedPoints += v->persistedPoints;
+		s.voxel.manifoldReallocations += v->manifoldReallocations;
+		s.voxel.scalarContacts += v->scalarContacts;
+		s.voxel.singleManifoldContacts += v->singleManifoldContacts;
+		s.voxel.solverClassChanges += v->solverClassChanges;
+		s.voxel.patchVisits += v->patchVisits;
+		s.voxel.patchUniqueKeys += v->patchUniqueKeys;
+		s.voxel.patchDuplicateVisits += v->patchDuplicateVisits;
+		s.voxel.patchEligibleVisits += v->patchEligibleVisits;
+		s.voxel.patchEligibleUniqueKeys += v->patchEligibleUniqueKeys;
+		s.voxel.patchMaxMultiplicity = b3MaxInt( s.voxel.patchMaxMultiplicity, v->patchMaxMultiplicity );
+		s.voxel.patchMaxUniqueKeys = b3MaxInt( s.voxel.patchMaxUniqueKeys, v->patchMaxUniqueKeys );
+		for ( int bucket = 0; bucket < 6; ++bucket )
+		{
+			s.voxel.patchMultiplicityCounts[bucket] += v->patchMultiplicityCounts[bucket];
+		}
+		for ( int pair = 0; pair < 16; ++pair )
+		{
+			s.voxel.patchTopologyPairs[pair] += v->patchTopologyPairs[pair];
+		}
+		s.voxel.patchSatFaceAxes += v->patchSatFaceAxes;
+		s.voxel.patchSatEdgeAxes += v->patchSatEdgeAxes;
+		s.voxel.patchSatSeparations += v->patchSatSeparations;
+		s.voxel.topologyPrunedPairs += v->topologyPrunedPairs;
+		s.voxel.representedLeafPairs += v->representedLeafPairs;
+		s.voxel.pseudoSatCalls += v->pseudoSatCalls;
+		s.voxel.pseudoSeparatedKeys += v->pseudoSeparatedKeys;
+		s.voxel.selectedPatchKeys += v->selectedPatchKeys;
+		s.voxel.emptySelectedPatchKeys += v->emptySelectedPatchKeys;
+		s.voxel.pseudoWitnessRejects += v->pseudoWitnessRejects;
+		s.voxel.pseudoDepthRejects += v->pseudoDepthRejects;
+		s.voxel.pseudoLateSelections += v->pseudoLateSelections;
+		s.voxel.patchBudgetOverflows += v->patchBudgetOverflows;
+		s.voxel.emittedPatchManifolds += v->emittedPatchManifolds;
+		s.voxel.workspaceKeyHits += v->workspaceKeyHits;
+		s.voxel.workspaceKeyMisses += v->workspaceKeyMisses;
+		s.voxel.exactPatchPersistedPoints += v->exactPatchPersistedPoints;
+		s.voxel.featureRemapRejects += v->featureRemapRejects;
+		s.voxel.emptyPatchFallbackKeys += v->emptyPatchFallbackKeys;
+		s.voxel.patchLeafFallbackTests += v->patchLeafFallbackTests;
+		s.voxel.patchTableGrowths += v->patchTableGrowths;
+		s.voxel.patchScratchPeakBytes = b3MaxInt( s.voxel.patchScratchPeakBytes, v->patchScratchPeakBytes );
+		s.voxel.adaptiveLeafPairs += v->adaptiveLeafPairs;
 		s.recycledContactCount += world->taskContexts.data[i].recycledContactCount;
 
 		s.distanceIterations = b3MaxInt( s.distanceIterations, world->taskContexts.data[i].distanceIterations );
@@ -3818,6 +4118,9 @@ void b3ValidateSolverSets( b3World* world )
 			B3_ASSERT( contact->setIndex == b3_awakeSet );
 			B3_ASSERT( contact->colorIndex == colorIndex );
 			B3_ASSERT( contact->localIndex == i );
+			B3_ASSERT( ( contact->flags & b3_simMeshContact ) == 0 );
+			B3_ASSERT( contact->manifoldCount == 1 );
+			B3_ASSERT( ( contact->flags & b3_simSolverClassChanged ) == 0 );
 
 			int bodyIdA = contact->edges[0].bodyId;
 			int bodyIdB = contact->edges[1].bodyId;
@@ -3844,6 +4147,11 @@ void b3ValidateSolverSets( b3World* world )
 			B3_ASSERT( contact->setIndex == b3_awakeSet );
 			B3_ASSERT( contact->colorIndex == colorIndex );
 			B3_ASSERT( contact->localIndex == i );
+			B3_ASSERT( ( contact->flags & b3_simSolverClassChanged ) == 0 );
+			if ( colorIndex != B3_OVERFLOW_INDEX && ( contact->flags & b3_simVoxelContact ) )
+			{
+				B3_ASSERT( contact->manifoldCount != 1 );
+			}
 
 			int bodyIdA = contact->edges[0].bodyId;
 			int bodyIdB = contact->edges[1].bodyId;
@@ -4038,7 +4346,17 @@ void b3ValidateContacts( b3World* world )
 			B3_ASSERT( *index == contactIndex );
 		}
 
-		if ( contact->flags & b3_simMeshContact )
+		if ( contact->flags & b3_simVoxelContact )
+		{
+			int stateCount = contact->voxelContact.states.count;
+			B3_ASSERT( stateCount == 0 || stateCount == contact->manifoldCount );
+			if ( stateCount > 0 )
+			{
+				B3_ASSERT( contact->voxelContact.states.data != NULL );
+				B3_ASSERT( contact->voxelContact.states.capacity >= stateCount );
+			}
+		}
+		else if ( contact->flags & b3_simMeshContact )
 		{
 			int cacheCount = contact->meshContact.triangleCache.count;
 			if ( cacheCount > 0 )

@@ -78,6 +78,17 @@ macro_rules! world_resource_id {
             pub(crate) const fn resource_token(self) -> ResourceToken {
                 self.resource
             }
+
+            /// Returns the native one-based slot index for deterministic
+            /// ordering and diagnostics.
+            ///
+            /// The index is not a capability and cannot be converted back
+            /// into a live handle without the owning world's provenance
+            /// ledger.
+            #[inline]
+            pub const fn slot_index(self) -> i32 {
+                self.raw.index1
+            }
         }
 
         impl ::core::fmt::Debug for $name {
@@ -93,6 +104,59 @@ world_resource_id!(
     BodyId,
     BodyKey,
     ffi::b3BodyId
+);
+
+macro_rules! snapshot_resource_id {
+    (
+        $(#[$meta:meta])*
+        $name:ident,
+        $raw:ident
+    ) => {
+        $(#[$meta])*
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        pub struct $name {
+            /// One-based native slot index stored in a Box3D world image.
+            pub index1: i32,
+            /// Native slot generation stored in a Box3D world image.
+            pub generation: u16,
+        }
+
+        impl $name {
+            #[inline]
+            pub(crate) const fn from_raw(raw: ffi::$raw) -> Self {
+                Self {
+                    index1: raw.index1,
+                    generation: raw.generation,
+                }
+            }
+
+            #[inline]
+            pub(crate) const fn into_raw(self, world0: u16) -> ffi::$raw {
+                ffi::$raw {
+                    index1: self.index1,
+                    world0,
+                    generation: self.generation,
+                }
+            }
+        }
+    };
+}
+
+snapshot_resource_id!(
+    /// Portable body identity stored alongside a Box3D world image.
+    BodySnapshotId,
+    b3BodyId
+);
+snapshot_resource_id!(
+    /// Portable shape identity stored alongside a Box3D world image.
+    ShapeSnapshotId,
+    b3ShapeId
+);
+snapshot_resource_id!(
+    /// Portable joint identity stored alongside a Box3D world image.
+    JointSnapshotId,
+    b3JointId
 );
 
 world_resource_id!(

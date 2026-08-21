@@ -33,6 +33,8 @@ world.rs | caller-scoped,transient,world-owner
 world/body_api.rs | world-owner
 world/creation.rs | caller-scoped
 world/creation_transaction.rs | caller-scoped,retained-owner-cleanup
+world/ledger.rs | world-owner
 world/lifecycle.rs | caller-scoped,ordinary-owner,retained-owner-cleanup,world-owner
 world/runtime.rs | world-owner
 world/shape_api.rs | caller-scoped,world-owner
+world/sleep_api.rs | world-owner

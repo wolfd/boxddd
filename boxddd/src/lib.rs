@@ -94,11 +94,12 @@ pub mod world;
 pub use body::{BodyDef, BodyDefBuilder, BodyType};
 pub use callbacks::MaterialMixInput;
 pub use collision::{
-    BoxCastInput, CastOutput, CollisionPlane, DistanceInput, DistanceOutput, LocalManifold,
-    PlaneSolverResult, RayCastInput, ShapeCastInput, ShapeCastPairInput, ShapeProxy, Sweep,
-    TimeOfImpactInput, TimeOfImpactOutput, TimeOfImpactState, clip_vector,
+    BoxCastInput, CastOutput, CollisionPlane, DistanceInput, DistanceOutput, FixedLocalManifold,
+    LocalManifold, PlaneSolverResult, RayCastInput, ShapeCastInput, ShapeCastPairInput, ShapeProxy,
+    Sweep, TimeOfImpactInput, TimeOfImpactOutput, TimeOfImpactState, clip_vector,
     collide_capsule_and_sphere, collide_capsules, collide_hull_and_capsule,
-    collide_hull_and_sphere, collide_hulls, collide_spheres, collide_triangle_and_capsule,
+    collide_hull_and_sphere, collide_hulls, collide_shape_hull_and_box,
+    collide_shape_voxel_and_box, collide_spheres, collide_triangle_and_capsule,
     collide_triangle_and_hull, collide_triangle_and_sphere, compute_capsule_aabb,
     compute_capsule_mass, compute_compound_aabb, compute_height_field_aabb, compute_hull_aabb,
     compute_hull_mass, compute_mesh_aabb, compute_sphere_aabb, compute_sphere_mass,
@@ -145,14 +146,17 @@ pub use shapes::{
     CompoundChildShape, CompoundHull, CompoundMesh, CompoundQueryHit, CompoundSphere,
     HEIGHT_FIELD_HOLE, HeightField, HeightFieldBuilder, Hull, MAX_COMPOUND_MESH_MATERIALS,
     MeshData, MeshDataBuilder, MeshDataOptions, MeshTriangleHit, ScaledBox, ShapeDef,
-    ShapeDefBuilder, ShapeHeightField, ShapeHull, ShapeMesh, ShapeType, Sphere, SurfaceMaterial,
+    ShapeDefBuilder, ShapeHeightField, ShapeHull, ShapeMesh, ShapeType, ShapeVoxel, Sphere,
+    SurfaceMaterial, VoxelCell, VoxelData,
 };
 pub use types::{
-    Aabb, BodyId, Capacity, ContactData, ContactId, CosSin, Counters, Filter, JointId, Manifold,
-    ManifoldPoint, MassData, Matrix3, MotionLocks, Plane, Pos, Profile, Quat,
-    SegmentDistanceResult, ShapeId, Transform, Vec2, Vec3, Version, WorldTransform,
-    closest_point_on_segment, compute_cos_sin, deterministic_atan2, is_valid_float, line_distance,
-    segment_distance, steiner_inertia,
+    Aabb, BodyId, BodySleepBuffer, BodySleepData, BodySnapshotId, Capacity, ContactBuffer,
+    ContactData, ContactId, ContactView, CosSin, Counters, Filter, IslandCensus,
+    IslandCensusBuffer, JointId, JointSnapshotId, Manifold, ManifoldPoint, MassData, Matrix3,
+    MotionLocks, Plane, Pos, Profile, Quat, SegmentDistanceResult, ShapeId, ShapeSnapshotId,
+    Transform, Vec2, Vec3, Version, VoxelCounters, WorldTransform, closest_point_on_segment,
+    compute_cos_sin, deterministic_atan2, is_valid_float, line_distance, segment_distance,
+    steiner_inertia,
 };
 pub use world::{
     ExplosionDef, ExplosionDefBuilder, StepOutcome, World, WorldDef, WorldDefBuilder,

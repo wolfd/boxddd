@@ -23,6 +23,7 @@ pub(crate) enum ShapeDropEvent {
     MeshBacking,
     HeightFieldBacking,
     CompoundBacking,
+    VoxelBacking,
 }
 
 #[cfg(test)]
@@ -317,6 +318,10 @@ impl PreparedShapeDef<'_> {
         self.invoke(|raw| unsafe {
             ffi::b3CreateHeightFieldShape(body, raw, height_field.as_ptr())
         })
+    }
+
+    pub(crate) fn create_voxel(self, body: ffi::b3BodyId, voxel: &VoxelData) -> ffi::b3ShapeId {
+        self.invoke(|raw| unsafe { ffi::b3CreateVoxelShape(body, raw, voxel.as_ptr()) })
     }
 
     pub(crate) fn create_compound(
@@ -1628,6 +1633,259 @@ impl Drop for MeshData {
     }
 }
 
+#[repr(C)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Integer coordinate of one occupied cell in a [`VoxelData`] grid.
+pub struct VoxelCell {
+    /// Cell coordinate on the local x axis.
+    pub x: i32,
+    /// Cell coordinate on the local y axis.
+    pub y: i32,
+    /// Cell coordinate on the local z axis.
+    pub z: i32,
+}
+
+impl VoxelCell {
+    /// Creates an integer voxel coordinate.
+    #[inline]
+    pub const fn new(x: i32, y: i32, z: i32) -> Self {
+        Self { x, y, z }
+    }
+
+    #[inline]
+    pub(crate) const fn into_raw(self) -> ffi::b3Vec3i {
+        ffi::b3Vec3i {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn from_raw(raw: ffi::b3Vec3i) -> Self {
+        Self::new(raw.x, raw.y, raw.z)
+    }
+}
+
+impl From<[i32; 3]> for VoxelCell {
+    #[inline]
+    fn from(value: [i32; 3]) -> Self {
+        Self::new(value[0], value[1], value[2])
+    }
+}
+
+impl From<VoxelCell> for [i32; 3] {
+    #[inline]
+    fn from(value: VoxelCell) -> Self {
+        [value.x, value.y, value.z]
+    }
+}
+
+#[derive(Debug)]
+/// Owned sparse occupancy data used by a voxel collider.
+///
+/// Input cells are sorted and deduplicated by Box3D. The native allocation is
+/// intentionally not `Send` or `Sync` and holds ordinary Foundation activity
+/// until it is destroyed.
+pub struct VoxelData {
+    inner: Option<VoxelDataInner>,
+}
+
+#[derive(Debug)]
+struct VoxelDataInner {
+    raw: NonNull<ffi::b3VoxelData>,
+    _foundation_lease: OrdinaryLease,
+    _not_send_sync: PhantomData<Rc<()>>,
+}
+
+impl VoxelDataInner {
+    fn destroy(self) {
+        let owner = callback_state::RetainOnUnwind::new(self);
+        unsafe { ffi::b3DestroyVoxelData(owner.raw.as_ptr()) };
+        #[cfg(test)]
+        record_shape_drop(ShapeDropEvent::VoxelBacking);
+        owner.finish();
+    }
+}
+
+impl VoxelData {
+    /// Creates sparse voxel data from occupied integer cells and a uniform cell size.
+    pub fn new<I, C>(cells: I, voxel_size: f32) -> Result<Self>
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<VoxelCell>,
+    {
+        Self::new_with_origin(cells, voxel_size, Vec3::ZERO)
+    }
+
+    /// Creates sparse voxel data with an explicit local-space cell-center origin.
+    ///
+    /// Cell `(x, y, z)` is centered at `origin + voxel_size * (x, y, z)`.
+    pub fn new_with_origin<I, C>(cells: I, voxel_size: f32, origin: impl Into<Vec3>) -> Result<Self>
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<VoxelCell>,
+    {
+        callback_state::check_not_in_callback()?;
+        let cells: Vec<ffi::b3Vec3i> = cells
+            .into_iter()
+            .map(|cell| cell.into().into_raw())
+            .collect();
+        if cells.is_empty() {
+            return Err(validation::invalid(
+                "voxel.cells",
+                InvalidValueReason::OutOfRange,
+            ));
+        }
+        let cell_count = validation::count_i32("voxel.cells", cells.len())?;
+        validation::positive("voxel.voxel_size", voxel_size)?;
+        let origin = origin.into();
+        validation::vec3("voxel.origin", origin)?;
+        Self::from_native(|| unsafe {
+            ffi::b3CreateOffsetVoxelData(cells.as_ptr(), cell_count, voxel_size, origin.into_raw())
+        })
+    }
+
+    /// Returns the number of unique occupied cells.
+    #[inline]
+    pub fn cell_count(&self) -> i32 {
+        unsafe { ffi::b3VoxelData_GetCellCount(self.as_ptr()) }
+    }
+
+    /// Returns the uniform edge length of each voxel.
+    #[inline]
+    pub fn voxel_size(&self) -> f32 {
+        unsafe { ffi::b3VoxelData_GetVoxelSize(self.as_ptr()) }
+    }
+
+    /// Returns the local-space center of integer cell `(0, 0, 0)`.
+    #[inline]
+    pub fn origin(&self) -> Vec3 {
+        Vec3::from_raw(unsafe { ffi::b3VoxelData_GetOrigin(self.as_ptr()) })
+    }
+
+    /// Returns local-space bounds around all occupied cells.
+    #[inline]
+    pub fn bounds(&self) -> Aabb {
+        Aabb::from_raw(unsafe { ffi::b3VoxelData_GetBounds(self.as_ptr()) })
+    }
+
+    /// Returns whether the integer cell is occupied.
+    #[inline]
+    pub fn is_solid(&self, cell: impl Into<VoxelCell>) -> bool {
+        unsafe { ffi::b3VoxelData_IsSolid(self.as_ptr(), cell.into().into_raw()) }
+    }
+
+    /// Copies occupied cells in Box3D's canonical lexicographic order.
+    pub fn cells(&self) -> Vec<VoxelCell> {
+        let count = self.cell_count().max(0) as usize;
+        let mut cells = vec![ffi::b3Vec3i { x: 0, y: 0, z: 0 }; count];
+        let written =
+            unsafe { ffi::b3VoxelData_GetCells(self.as_ptr(), cells.as_mut_ptr(), count as i32) }
+                .clamp(0, count as i32) as usize;
+        cells.truncate(written);
+        cells.into_iter().map(VoxelCell::from_raw).collect()
+    }
+
+    #[inline]
+    pub(crate) fn as_ptr(&self) -> *const ffi::b3VoxelData {
+        self.inner().raw.as_ptr()
+    }
+
+    fn from_native(create: impl FnOnce() -> *mut ffi::b3VoxelData) -> Result<Self> {
+        create_native_owner(create)
+            .map(|(raw, foundation_lease)| VoxelDataInner {
+                raw,
+                _foundation_lease: foundation_lease,
+                _not_send_sync: PhantomData,
+            })
+            .map(|inner| Self { inner: Some(inner) })
+    }
+
+    fn inner(&self) -> &VoxelDataInner {
+        self.inner
+            .as_ref()
+            .expect("live voxel data always owns its complete inner")
+    }
+}
+
+impl Drop for VoxelData {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            cleanup_local_owner(inner, VoxelDataInner::destroy);
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+/// Borrowed view of sparse voxel data owned by a shape or restored world image.
+pub struct ShapeVoxel<'a> {
+    raw: &'a ffi::b3VoxelData,
+    _not_send_sync: PhantomData<Rc<()>>,
+}
+
+impl<'a> ShapeVoxel<'a> {
+    #[inline]
+    pub(crate) const fn from_raw(raw: &'a ffi::b3VoxelData) -> Self {
+        Self {
+            raw,
+            _not_send_sync: PhantomData,
+        }
+    }
+
+    #[inline]
+    fn as_ptr(&self) -> *const ffi::b3VoxelData {
+        self.raw
+    }
+
+    #[inline]
+    pub(crate) const fn raw_ptr(&self) -> *const ffi::b3VoxelData {
+        self.raw
+    }
+
+    /// Returns the number of unique occupied cells.
+    #[inline]
+    pub fn cell_count(&self) -> i32 {
+        unsafe { ffi::b3VoxelData_GetCellCount(self.as_ptr()) }
+    }
+
+    /// Returns the uniform edge length of each voxel.
+    #[inline]
+    pub fn voxel_size(&self) -> f32 {
+        unsafe { ffi::b3VoxelData_GetVoxelSize(self.as_ptr()) }
+    }
+
+    /// Returns the local-space center of integer cell `(0, 0, 0)`.
+    #[inline]
+    pub fn origin(&self) -> Vec3 {
+        Vec3::from_raw(unsafe { ffi::b3VoxelData_GetOrigin(self.as_ptr()) })
+    }
+
+    /// Returns local-space bounds around all occupied cells.
+    #[inline]
+    pub fn bounds(&self) -> Aabb {
+        Aabb::from_raw(unsafe { ffi::b3VoxelData_GetBounds(self.as_ptr()) })
+    }
+
+    /// Returns whether the integer cell is occupied.
+    #[inline]
+    pub fn is_solid(&self, cell: impl Into<VoxelCell>) -> bool {
+        unsafe { ffi::b3VoxelData_IsSolid(self.as_ptr(), cell.into().into_raw()) }
+    }
+
+    /// Copies occupied cells in Box3D's canonical lexicographic order.
+    pub fn cells(&self) -> Vec<VoxelCell> {
+        let count = self.cell_count().max(0) as usize;
+        let mut cells = vec![ffi::b3Vec3i { x: 0, y: 0, z: 0 }; count];
+        let written =
+            unsafe { ffi::b3VoxelData_GetCells(self.as_ptr(), cells.as_mut_ptr(), count as i32) }
+                .clamp(0, count as i32) as usize;
+        cells.truncate(written);
+        cells.into_iter().map(VoxelCell::from_raw).collect()
+    }
+}
+
 #[derive(Clone, Debug)]
 /// Builder for `HeightField`.
 pub struct HeightFieldBuilder {
@@ -1992,6 +2250,11 @@ impl<'a> ShapeHull<'a> {
     }
 
     #[inline]
+    pub(crate) const fn raw_ptr(&self) -> *const ffi::b3HullData {
+        self.raw
+    }
+
+    #[inline]
     /// Returns the native byte count of the hull data.
     pub const fn byte_count(&self) -> i32 {
         self.raw.byteCount
@@ -1999,7 +2262,7 @@ impl<'a> ShapeHull<'a> {
 
     #[inline]
     /// Returns Box3D's stable hash for the hull data.
-    pub const fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u64 {
         self.raw.hash
     }
 
@@ -2086,7 +2349,7 @@ impl<'a> ShapeMesh<'a> {
 
     #[inline]
     /// Returns Box3D's stable hash for the mesh data.
-    pub const fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u64 {
         self.data.hash
     }
 
@@ -2157,7 +2420,7 @@ impl<'a> ShapeHeightField<'a> {
 
     #[inline]
     /// Returns Box3D's stable hash for the height-field data.
-    pub const fn hash(&self) -> u32 {
+    pub const fn hash(&self) -> u64 {
         self.raw.hash
     }
 
@@ -2200,7 +2463,7 @@ impl<'a> ShapeHeightField<'a> {
     #[inline]
     /// Returns whether cells use clockwise triangle winding.
     pub const fn clockwise(&self) -> bool {
-        self.raw.clockwise
+        self.raw.clockwise != 0
     }
 }
 
@@ -3172,6 +3435,8 @@ pub enum ShapeType {
     Mesh,
     /// Sphere shape.
     Sphere,
+    /// Sparse voxel-grid shape.
+    Voxel,
 }
 
 impl ShapeType {
@@ -3184,6 +3449,7 @@ impl ShapeType {
             ffi::b3ShapeType_b3_hullShape => Some(Self::Hull),
             ffi::b3ShapeType_b3_meshShape => Some(Self::Mesh),
             ffi::b3ShapeType_b3_sphereShape => Some(Self::Sphere),
+            ffi::b3ShapeType_b3_voxelShape => Some(Self::Voxel),
             _ => None,
         }
     }

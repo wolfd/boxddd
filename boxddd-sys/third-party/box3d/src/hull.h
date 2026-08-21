@@ -7,10 +7,14 @@
 
 #include <stddef.h>
 
-// Content hash and equality over the whole baked hull. Shared by every hull
-// de-duplication map so they agree on identity.
 uint64_t b3HashHullData( const b3HullData* hull );
 bool b3CompareHullData( const b3HullData* hull1, const b3HullData* hull2 );
+bool b3IsCanonicalBoxHull( const b3HullData* hull );
+bool b3IsBoxHull( const b3HullData* hull );
+
+// Temporary collision geometry is never interned, so its content hash is not
+// needed. All geometric fields are identical to b3MakeBoxHull.
+b3BoxHull b3MakeBoxHullForCollision( float hx, float hy, float hz );
 
 // Map keyed by hull content. The world hull database uses the value as a reference count,
 // while compound baking stores uses the value as a byte offset. Implementation is in hull.c.

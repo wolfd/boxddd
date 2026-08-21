@@ -1,6 +1,6 @@
 # Box3D Official Sample Parity Matrix
 
-This matrix maps the official samples registered by Box3D commit `781673be801569a94be7942848755fc0baad3653` to `boxddd` and `bevy_boxddd` teaching material.
+This matrix maps the official samples registered by Box3D commit `30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c` to `boxddd` and `bevy_boxddd` teaching material.
 It is a case-level parity map, not a promise to port every C++ sample host feature line-for-line.
 
 The source of truth is the generated inventory in `docs/upstream-parity/box3d-sample-inventory.json`.
@@ -24,13 +24,13 @@ cargo run -p xtask -- sample-parity --check
 | Category | Cases | Current Rust strategy |
 |---|---:|---|
 | Benchmark | 19 | Deferred until a Rust benchmark harness has explicit measurement goals. |
-| Bodies | 10 | Common controls are covered; measured gyroscopic precession remains deferred. |
+| Bodies | 12 | Common controls are covered; measured gyroscopic precession remains deferred. |
 | Character | 4 | Covered through mover examples and the Bevy character mover scene. |
 | Collision | 12 | Covered through query/collision examples, tests, and picking scenes. |
 | Compound | 6 | Covered through compound, mesh, height-field, and advanced collider examples. |
 | Continuous | 9 | Covered for the common bullet/TOI path; mesh stress cases stay test/deferred. |
 | Determinism | 4 | Covered at contract level through recording/replay plus query and collision tests; exact upstream scenario hashes are not claimed. |
-| Events | 6 | Covered through event examples, Bevy messages, and focused tests. |
+| Events | 7 | Covered through event examples, Bevy messages, and focused tests. |
 | Geometry | 5 | Covered through collision geometry tests and collider examples. |
 | Issues | 10 | Deferred until a corresponding wrapper regression is reproduced. |
 | Joints | 16 | Covered through joint gallery/testbed scenes and joint runtime tests. |
@@ -64,35 +64,37 @@ Use this table when deciding whether a future change should remain deferred, bec
 
 | Category | Official sample | Source location | Parity mode | Target | Notes |
 |---|---|---|---|---|---|
-| Benchmark | Candy Cups | `sample_benchmark.cpp:371` | Deferred | Upstream benchmark reference | Convex stress scene; port when hull benchmark coverage is needed. |
-| Benchmark | Chains | `sample_benchmark.cpp:1222` | Deferred | Upstream benchmark reference | Chain stress benchmark; joint teaching coverage lives in Bevy scenes. |
-| Benchmark | Convex Pile | `sample_benchmark.cpp:1483` | Deferred | Upstream benchmark reference | Convex-pile stress benchmark; port when hull/contact throughput has a measured target. |
-| Benchmark | Destruction | `sample_benchmark.cpp:1416` | Deferred | Upstream benchmark reference | Destruction stress benchmark; port when destruction throughput is measured. |
-| Benchmark | Explosion | `sample_benchmark.cpp:488` | Deferred | Upstream benchmark reference | High-force stress case; port when force-field benchmark coverage is needed. |
-| Benchmark | Falling Boxes | `sample_benchmark.cpp:293` | Deferred | Upstream benchmark reference | Box throughput benchmark; visible stack scenes cover teaching only. |
-| Benchmark | Falling Trees | `sample_benchmark.cpp:730` | Deferred | Upstream benchmark reference | Broad dynamic stress case; port when scenario has a benchmark target. |
-| Benchmark | Height Field | `sample_benchmark.cpp:658` | Deferred | Upstream benchmark reference | Height-field throughput benchmark; teaching covered elsewhere. |
-| Benchmark | Hull | `sample_benchmark.cpp:1110` | Deferred | Upstream benchmark reference | Hull creation/query benchmark; safe hull API is covered by tests/examples. |
-| Benchmark | Joint Grid | `sample_benchmark.cpp:248` | Deferred | Upstream benchmark reference | Joint throughput benchmark; current joint examples are teaching coverage. |
-| Benchmark | Junkyard | `sample_benchmark.cpp:1455` | Deferred | Upstream benchmark reference | Large mixed stress scene; not a first-release teaching target. |
-| Benchmark | Large Pyramid | `sample_benchmark.cpp:44` | Deferred | Upstream benchmark reference | Stress benchmark; port when `boxddd` has benchmark harness goals. |
-| Benchmark | Large World | `sample_benchmark.cpp:1022` | Deferred | Upstream benchmark reference | Second upstream large-world registration; source location disambiguates it. |
-| Benchmark | Large World | `sample_benchmark.cpp:203` | Deferred | Upstream benchmark reference | Large-world stress case; port with a precision/performance benchmark. |
-| Benchmark | Many Pyramids | `sample_benchmark.cpp:101` | Deferred | Upstream benchmark reference | Stress benchmark; port when multi-island throughput is measured. |
-| Benchmark | Rain | `sample_benchmark.cpp:154` | Deferred | Upstream benchmark reference | Stress benchmark; port when spawn-rate performance is measured. |
-| Benchmark | Sensor | `sample_benchmark.cpp:963` | Deferred | Upstream benchmark reference | Sensor throughput benchmark; event semantics are covered by examples/tests. |
-| Benchmark | Washer | `sample_benchmark.cpp:990` | Deferred | Upstream benchmark reference | Stress scene; port only with a measured benchmark story. |
-| Benchmark | Wide Pyramid | `sample_benchmark.cpp:68` | Deferred | Upstream benchmark reference | Stress benchmark; port when pyramid breadth is a measured target. |
+| Benchmark | Candy Cups | `sample_benchmark.cpp:373` | Deferred | Upstream benchmark reference | Convex stress scene; port when hull benchmark coverage is needed. |
+| Benchmark | Chains | `sample_benchmark.cpp:1223` | Deferred | Upstream benchmark reference | Chain stress benchmark; joint teaching coverage lives in Bevy scenes. |
+| Benchmark | Convex Pile | `sample_benchmark.cpp:1488` | Deferred | Upstream benchmark reference | Convex-pile stress benchmark; port when hull/contact throughput has a measured target. |
+| Benchmark | Destruction | `sample_benchmark.cpp:1417` | Deferred | Upstream benchmark reference | Destruction stress benchmark; port when destruction throughput is measured. |
+| Benchmark | Explosion | `sample_benchmark.cpp:490` | Deferred | Upstream benchmark reference | High-force stress case; port when force-field benchmark coverage is needed. |
+| Benchmark | Falling Boxes | `sample_benchmark.cpp:295` | Deferred | Upstream benchmark reference | Box throughput benchmark; visible stack scenes cover teaching only. |
+| Benchmark | Falling Trees | `sample_benchmark.cpp:732` | Deferred | Upstream benchmark reference | Broad dynamic stress case; port when scenario has a benchmark target. |
+| Benchmark | Height Field | `sample_benchmark.cpp:660` | Deferred | Upstream benchmark reference | Height-field throughput benchmark; teaching covered elsewhere. |
+| Benchmark | Hull | `sample_benchmark.cpp:1111` | Deferred | Upstream benchmark reference | Hull creation/query benchmark; safe hull API is covered by tests/examples. |
+| Benchmark | Joint Grid | `sample_benchmark.cpp:250` | Deferred | Upstream benchmark reference | Joint throughput benchmark; current joint examples are teaching coverage. |
+| Benchmark | Junkyard | `sample_benchmark.cpp:1456` | Deferred | Upstream benchmark reference | Large mixed stress scene; not a first-release teaching target. |
+| Benchmark | Large Pyramid | `sample_benchmark.cpp:46` | Deferred | Upstream benchmark reference | Stress benchmark; port when `boxddd` has benchmark harness goals. |
+| Benchmark | Large World | `sample_benchmark.cpp:1024` | Deferred | Upstream benchmark reference | Second upstream large-world registration; source location disambiguates it. |
+| Benchmark | Large World | `sample_benchmark.cpp:205` | Deferred | Upstream benchmark reference | Large-world stress case; port with a precision/performance benchmark. |
+| Benchmark | Many Pyramids | `sample_benchmark.cpp:103` | Deferred | Upstream benchmark reference | Stress benchmark; port when multi-island throughput is measured. |
+| Benchmark | Rain | `sample_benchmark.cpp:156` | Deferred | Upstream benchmark reference | Stress benchmark; port when spawn-rate performance is measured. |
+| Benchmark | Sensor | `sample_benchmark.cpp:965` | Deferred | Upstream benchmark reference | Sensor throughput benchmark; event semantics are covered by examples/tests. |
+| Benchmark | Washer | `sample_benchmark.cpp:992` | Deferred | Upstream benchmark reference | Stress scene; port only with a measured benchmark story. |
+| Benchmark | Wide Pyramid | `sample_benchmark.cpp:70` | Deferred | Upstream benchmark reference | Stress benchmark; port when pyramid breadth is a measured target. |
 | Bodies | Body Type | `sample_bodies.cpp:269` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Teaches static/dynamic/kinematic body authoring through Rust and Bevy. |
-| Bodies | Cast | `sample_bodies.cpp:975` | TestOnly | `boxddd/examples/shape_queries.rs`, `boxddd/tests/world_and_queries.rs` | Body and shape query APIs are covered headlessly. |
-| Bodies | Disable | `sample_bodies.cpp:788` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Safe enable/disable lifecycle is covered by the body-controls example. |
-| Bodies | Fixed Rotation | `sample_bodies.cpp:1182` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Fixed rotation maps to the safe motion-lock API. |
-| Bodies | Gyroscopic Precession | `sample_bodies.cpp:578` | Deferred | Upstream body-dynamics reference | Port when precession rate or gyroscopic stability has an explicit Rust teaching or regression target. |
+| Bodies | Cast | `sample_bodies.cpp:981` | TestOnly | `boxddd/examples/shape_queries.rs`, `boxddd/tests/world_and_queries.rs` | Body and shape query APIs are covered headlessly. |
+| Bodies | Class Ring | `sample_bodies.cpp:1284` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | The body-control examples cover mixed dynamic-body arrangements and transforms. |
+| Bodies | Disable | `sample_bodies.cpp:794` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Safe enable/disable lifecycle is covered by the body-controls example. |
+| Bodies | Fixed Rotation | `sample_bodies.cpp:1188` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Fixed rotation maps to the safe motion-lock API. |
+| Bodies | Gyroscopic Precession | `sample_bodies.cpp:584` | Deferred | Upstream body-dynamics reference | Port when precession rate or gyroscopic stability has an explicit Rust teaching or regression target. |
 | Bodies | Gyroscopic Torque | `sample_bodies.cpp:370` | TeachingAdaptation | `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Bevy body-control scene is the current visible angular-torque teaching path. |
-| Bodies | Kinematic | `sample_bodies.cpp:1051` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Kinematic body motion is part of the body-controls teaching path. |
-| Bodies | Lock Mixing | `sample_bodies.cpp:1133` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Motion locks are covered in core and Bevy body-control examples. |
+| Bodies | Kinematic | `sample_bodies.cpp:1057` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Kinematic body motion is part of the body-controls teaching path. |
+| Bodies | Lock Mixing | `sample_bodies.cpp:1139` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Motion locks are covered in core and Bevy body-control examples. |
+| Bodies | Offset Kinematic | `sample_bodies.cpp:1335` | TeachingAdaptation | `boxddd/examples/body_controls.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Offset kinematic motion maps to the body-control transform teaching path. |
 | Bodies | Spinning Book | `sample_bodies.cpp:317` | TeachingAdaptation | `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Visual body-control scene covers angular motion teaching. |
-| Bodies | Weeble | `sample_bodies.cpp:679` | TeachingAdaptation | `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Body-control scene covers center-of-mass and stability behavior at teaching level. |
+| Bodies | Weeble | `sample_bodies.cpp:685` | TeachingAdaptation | `bevy_boxddd/examples/testbed_3d/scenes.rs#body-controls` | Body-control scene covers center-of-mass and stability behavior at teaching level. |
 | Character | CapsulePlane | `sample_character.cpp:146` | TestOnly | `boxddd/tests/mover_api.rs`, `boxddd/examples/character_mover.rs` | Capsule mover plane behavior is covered through the mover API test/example. |
 | Character | Mover | `sample_character.cpp:584` | TeachingAdaptation | `boxddd/examples/character_mover.rs`, `bevy_boxddd/examples/testbed_3d/scenes.rs#character-mover` | Core and Bevy examples teach mover casts and obstacle probes. |
 | Character | MoverOverlap | `sample_character.cpp:313` | TestOnly | `boxddd/tests/mover_api.rs`, `boxddd/examples/character_mover.rs` | Mover overlap behavior is covered by focused core mover coverage. |
@@ -128,11 +130,12 @@ Use this table when deciding whether a future change should remain deferred, bec
 | Determinism | Mesh Drop | `sample_determinism.cpp:266` | TestOnly | `boxddd/tests/determinism.rs`, `boxddd/tests/collision_validation.rs` | Upstream moved the former continuous mesh-drop unit sample into the determinism suite; Rust proves replay determinism and mesh collision validation separately. |
 | Determinism | Query Spawn | `sample_determinism.cpp:213` | TestOnly | `boxddd/tests/determinism.rs`, `boxddd/tests/world_and_queries.rs` | Rust covers replay determinism and query correctness separately; the exact combined upstream hash remains reference behavior. |
 | Determinism | Wave Pile | `sample_determinism.cpp:115` | TestOnly | `boxddd/tests/determinism.rs` | Rust validates deterministic recording/replay; the exact wave-pile sleep hash remains an upstream scenario. |
+| Events | Contact | `sample_events.cpp:934` | TeachingAdaptation | `boxddd/examples/events.rs`, `bevy_boxddd/examples/contact_messages_3d.rs` | Contact event flow is covered by core and Bevy message examples. |
 | Events | Hit | `sample_events.cpp:246` | TeachingAdaptation | `boxddd/examples/events.rs`, `bevy_boxddd/examples/contact_messages_3d.rs` | Hit events are shown through core and Bevy message examples. |
 | Events | Joint | `sample_events.cpp:572` | TestOnly | `boxddd/tests/events_and_sensors.rs`, `boxddd/tests/joint_runtime.rs` | Joint event semantics stay test-focused because generation can be threshold-sensitive. |
 | Events | Move | `sample_events.cpp:329` | TestOnly | `boxddd/examples/events.rs`, `boxddd/tests/events_and_sensors.rs` | Body move events are covered by core event tests/examples. |
-| Events | Persistent Contact | `sample_events.cpp:671` | TeachingAdaptation | `boxddd/examples/events.rs`, `bevy_boxddd/examples/contact_messages_3d.rs` | Persistent contact teaching is covered through contact message flow. |
-| Events | Sensor Hits | `sample_events.cpp:902` | TeachingAdaptation | `boxddd/examples/events.rs`, `bevy_boxddd/examples/contact_messages_3d.rs` | Sensor hit teaching is represented by event examples and Bevy messages. |
+| Events | Persistent Contact | `sample_events.cpp:1033` | TeachingAdaptation | `boxddd/examples/events.rs`, `bevy_boxddd/examples/contact_messages_3d.rs` | Persistent contact teaching is covered through contact message flow. |
+| Events | Sensor Hits | `sample_events.cpp:1264` | TeachingAdaptation | `boxddd/examples/events.rs`, `bevy_boxddd/examples/contact_messages_3d.rs` | Sensor hit teaching is represented by event examples and Bevy messages. |
 | Events | Sensor Visit | `sample_events.cpp:81` | TestOnly | `boxddd/examples/events.rs`, `boxddd/tests/events_and_sensors.rs` | Sensor visit semantics are covered by safe event snapshots/tests. |
 | Geometry | Box Hull | `sample_geometry.cpp:136` | TestOnly | `boxddd/tests/shape_geometry_validation.rs`, `boxddd/examples/advanced_collision.rs` | Hull construction is covered by shape geometry validation. |
 | Geometry | Capsule Mass | `sample_geometry.cpp:648` | TestOnly | `boxddd/tests/shape_geometry_validation.rs` | Capsule mass is a deterministic shape geometry check. |
@@ -188,7 +191,7 @@ Use this table when deciding whether a future change should remain deferred, bec
 | Ragdoll | Mesh | `sample_ragdoll.cpp:206` | TeachingAdaptation | `bevy_boxddd/examples/testbed_3d/scenes.rs#ragdoll-chain` | Mesh rig details are simplified into a visible joint-chain teaching scene. |
 | Ragdoll | Pile | `sample_ragdoll.cpp:260` | TeachingAdaptation | `bevy_boxddd/examples/testbed_3d/scenes.rs#ragdoll-chain` | Pile behavior is represented by the ragdoll-chain scene. |
 | Ragdoll | Pose | `sample_ragdoll.cpp:461` | Deferred | Upstream ragdoll pose reference | Pose editing and rig import are outside current teaching scope. |
-| Replay | Viewer | `sample_replay.cpp:1782` | TestOnly | `boxddd/examples/recording_replay.rs`, `boxddd/tests/recording.rs` | Rust covers deterministic recording/replay, not the upstream ImGui viewer. |
+| Replay | Viewer | `sample_replay.cpp:1843` | TestOnly | `boxddd/examples/recording_replay.rs`, `boxddd/tests/recording.rs` | Rust covers deterministic recording/replay, not the upstream ImGui viewer. |
 | Robustness | HighMassRatio1 | `sample_robustness.cpp:70` | Deferred | Upstream robustness reference | Port when high-mass-ratio behavior becomes a wrapper regression target. |
 | Robustness | Overflow Color Pile | `sample_robustness.cpp:281` | Deferred | Upstream robustness reference | Port when debug color overflow or pile robustness becomes release-relevant. |
 | Robustness | Overlap Recovery | `sample_robustness.cpp:241` | Deferred | Upstream robustness reference | Port when overlap recovery exposes a Rust API bug. |

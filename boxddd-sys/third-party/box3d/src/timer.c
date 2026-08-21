@@ -254,84 +254,85 @@ void b3Yield( void )
 
 void b3Sleep( int milliseconds )
 {
-	(void)milliseconds;
+	( (void)( milliseconds ) );
 }
 
 typedef struct b3Mutex
 {
-	int unused;
+	int dummy;
 } b3Mutex;
 
 b3Mutex* b3CreateMutex( void )
 {
-	b3Mutex* mutex = b3Alloc( sizeof( b3Mutex ) );
-	mutex->unused = 0;
-	return mutex;
+	b3Mutex* m = b3Alloc( sizeof( b3Mutex ) );
+	m->dummy = 42;
+	return m;
 }
 
-void b3DestroyMutex( b3Mutex* mutex )
+void b3DestroyMutex( b3Mutex* m )
 {
-	*mutex = (b3Mutex){ 0 };
-	b3Free( mutex, sizeof( b3Mutex ) );
+	*m = (b3Mutex){ 0 };
+	b3Free( m, sizeof( b3Mutex ) );
 }
 
-void b3LockMutex( b3Mutex* mutex )
+void b3LockMutex( b3Mutex* m )
 {
-	(void)mutex;
+	(void)m;
 }
 
-void b3UnlockMutex( b3Mutex* mutex )
+void b3UnlockMutex( b3Mutex* m )
 {
-	(void)mutex;
+	(void)m;
 }
 
 typedef struct b3Semaphore
 {
-	int unused;
+	int dummy;
 } b3Semaphore;
 
 b3Semaphore* b3CreateSemaphore( int initCount )
 {
-	b3Semaphore* semaphore = b3Alloc( sizeof( b3Semaphore ) );
+	b3Semaphore* s = b3Alloc( sizeof( b3Semaphore ) );
 	(void)initCount;
-	semaphore->unused = 0;
-	return semaphore;
+	s->dummy = 42;
+	return s;
 }
 
-void b3DestroySemaphore( b3Semaphore* semaphore )
+void b3DestroySemaphore( b3Semaphore* s )
 {
-	*semaphore = (b3Semaphore){ 0 };
-	b3Free( semaphore, sizeof( b3Semaphore ) );
+	*s = (b3Semaphore){ 0 };
+	b3Free( s, sizeof( b3Semaphore ) );
 }
 
-void b3WaitSemaphore( b3Semaphore* semaphore )
+void b3WaitSemaphore( b3Semaphore* s )
 {
-	(void)semaphore;
+	(void)s;
 }
 
-void b3SignalSemaphore( b3Semaphore* semaphore )
+void b3SignalSemaphore( b3Semaphore* s )
 {
-	(void)semaphore;
+	(void)s;
 }
 
 typedef struct b3Thread
 {
-	int unused;
+	int dummy;
 } b3Thread;
 
 b3Thread* b3CreateThread( b3ThreadFunction* function, void* context, const char* name )
 {
+	(void)function;
+	(void)context;
 	(void)name;
-	function( context );
-	b3Thread* thread = b3Alloc( sizeof( b3Thread ) );
-	thread->unused = 0;
-	return thread;
+	b3Thread* t = b3Alloc( sizeof( b3Thread ) );
+	t->dummy = 42;
+	return t;
 }
 
-void b3JoinThread( b3Thread* thread )
+void b3JoinThread( b3Thread* t )
 {
-	*thread = (b3Thread){ 0 };
-	b3Free( thread, sizeof( b3Thread ) );
+	*t = (b3Thread){ 0 };
+	b3Free( t, sizeof( b3Thread ) );
 }
 
 #elif defined( __linux__ )

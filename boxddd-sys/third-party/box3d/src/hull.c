@@ -3,8 +3,9 @@
 
 // Dirk Gregorius contributed portions of this code
 
-#include "algorithm.h"
 #include "hull.h"
+
+#include "algorithm.h"
 #include "math_internal.h"
 #include "shape.h"
 
@@ -2258,7 +2259,7 @@ b3HullData* b3CreateHull( const b3Vec3* points, int pointCount, int maxVertexCou
 	}
 
 	hull->hash = 0;
-	hull->hash = b3NonZeroHash( b3Hash( B3_HASH_INIT, (uint8_t*)hull, hull->byteCount ) );
+	hull->hash = b3Hash64NonZero( (uint8_t*)hull, hull->byteCount );
 
 	return hull;
 }
@@ -2270,7 +2271,7 @@ b3HullData* b3CloneHull( const b3HullData* hull )
 		return NULL;
 	}
 
-	b3HullData* clone = (b3HullData*)b3Alloc( hull->byteCount );
+	b3HullData* clone = b3Alloc( hull->byteCount );
 	memcpy( clone, hull, hull->byteCount );
 
 	return clone;
@@ -2278,9 +2279,7 @@ b3HullData* b3CloneHull( const b3HullData* hull )
 
 uint64_t b3HashHullData( const b3HullData* hull )
 {
-	// The baked content hash already covers byteCount. Spread the 32 bits across 64 so the table
-	// can use the high bits for its fast reject fragment.
-	return (uint64_t)hull->hash * 0x9E3779B97F4A7C15ull;
+	return hull->hash;
 }
 
 bool b3CompareHullData( const b3HullData* hull1, const b3HullData* hull2 )
@@ -2301,7 +2300,7 @@ bool b3CompareHullData( const b3HullData* hull1, const b3HullData* hull2 )
 // Hull identity covers every byte, so the structs carry explicit padding. These lock
 // the layout, re-audit padding if a size changes.
 _Static_assert( sizeof( b3HullData ) == 144, "unexpected hull data size" );
-_Static_assert( sizeof( b3BoxHull ) == 648, "unexpected box hull size" );
+_Static_assert( sizeof( b3BoxHull ) == 640, "unexpected box hull size" );
 
 // Implement b3HullMap.
 #define NAME b3HullMap
@@ -2494,8 +2493,9 @@ b3HullData* b3CloneAndTransformHull( const b3HullData* original, b3Transform tra
 		return NULL;
 	}
 
+	// Must ensure the hash is 0 so it doesn't contribute to itself.
 	hull->hash = 0;
-	hull->hash = b3NonZeroHash( b3Hash( B3_HASH_INIT, (uint8_t*)hull, hull->byteCount ) );
+	hull->hash = b3Hash64NonZero( (uint8_t*)hull, hull->byteCount );
 
 	B3_VALIDATE( b3IsValidHull( hull ) );
 
@@ -2771,7 +2771,80 @@ static const b3BoxHull s_boxHull = {
 		},
 };
 
-b3BoxHull b3MakeTransformedBoxHull( float hx, float hy, float hz, b3Transform transform )
+bool b3IsCanonicalBoxHull( const b3HullData* hull )
+{
+	const b3HullData* base = &s_boxHull.base;
+	if ( hull->byteCount != base->byteCount || hull->vertexCount != 8 || hull->edgeCount != 24 || hull->faceCount != 6 ||
+		 hull->vertexOffset != base->vertexOffset || hull->pointOffset != base->pointOffset || hull->edgeOffset != base->edgeOffset ||
+		 hull->planeOffset != base->planeOffset || hull->faceOffset != base->faceOffset ||
+		 hull->soaVertexOffset != base->soaVertexOffset || hull->soaNormalOffset != base->soaNormalOffset )
+	{
+		return false;
+	}
+
+	return memcmp( b3GetHullVertices( hull ), s_boxHull.boxVertices, sizeof( s_boxHull.boxVertices ) ) == 0 &&
+		   memcmp( b3GetHullEdges( hull ), s_boxHull.boxEdges, sizeof( s_boxHull.boxEdges ) ) == 0 &&
+		   memcmp( b3GetHullFaces( hull ), s_boxHull.boxFaces, sizeof( s_boxHull.boxFaces ) ) == 0;
+}
+
+bool b3IsBoxHull( const b3HullData* hull )
+{
+	if ( !b3IsCanonicalBoxHull( hull ) )
+	{
+		return false;
+	}
+
+	const b3Plane* planes = b3GetHullPlanes( hull );
+	const b3Vec3* points = b3GetHullPoints( hull );
+	b3Vec3 axes[3] = { planes[1].normal, planes[3].normal, planes[5].normal };
+	b3Vec3 fromCenter = b3Sub( points[0], hull->center );
+	b3Vec3 half = { b3Dot( axes[0], fromCenter ), b3Dot( axes[1], fromCenter ), b3Dot( axes[2], fromCenter ) };
+
+	const float axisTolerance = 2.0e-4f;
+	if ( half.x <= 0.0f || half.y <= 0.0f || half.z <= 0.0f )
+	{
+		return false;
+	}
+	for ( int i = 0; i < 3; ++i )
+	{
+		if ( b3AbsFloat( b3LengthSquared( axes[i] ) - 1.0f ) > axisTolerance )
+		{
+			return false;
+		}
+		for ( int j = i + 1; j < 3; ++j )
+		{
+			if ( b3AbsFloat( b3Dot( axes[i], axes[j] ) ) > axisTolerance )
+			{
+				return false;
+			}
+		}
+		if ( b3Dot( planes[2 * i].normal, axes[i] ) > -1.0f + axisTolerance )
+		{
+			return false;
+		}
+	}
+
+	static const int signs[8][3] = {
+		{ 1, 1, 1 }, { -1, 1, 1 }, { -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, -1 }, { -1, 1, -1 }, { -1, -1, -1 }, { 1, -1, -1 },
+	};
+	float scale = 1.0f + b3MaxFloat( half.x, b3MaxFloat( half.y, half.z ) );
+	float pointToleranceSquared = ( 2.0e-4f * scale ) * ( 2.0e-4f * scale );
+	for ( int i = 0; i < 8; ++i )
+	{
+		b3Vec3 expected = hull->center;
+		expected = b3MulAdd( expected, (float)signs[i][0] * half.x, axes[0] );
+		expected = b3MulAdd( expected, (float)signs[i][1] * half.y, axes[1] );
+		expected = b3MulAdd( expected, (float)signs[i][2] * half.z, axes[2] );
+		if ( b3LengthSquared( b3Sub( expected, points[i] ) ) > pointToleranceSquared )
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static b3BoxHull b3MakeTransformedBoxHullInternal( float hx, float hy, float hz, b3Transform transform, bool computeHash )
 {
 	B3_ASSERT( b3IsValidTransform( transform ) );
 
@@ -2863,10 +2936,24 @@ b3BoxHull b3MakeTransformedBoxHull( float hx, float hy, float hz, b3Transform tr
 	boxHull.nz[6] = 0.0f;
 	boxHull.nz[7] = 0.0f;
 
-	boxHull.base.hash = 0;
-	boxHull.base.hash = b3NonZeroHash( b3Hash( B3_HASH_INIT, (uint8_t*)&boxHull, sizeof( b3BoxHull ) ) );
+	if ( computeHash )
+	{
+		// Must ensure the hash is 0 so it doesn't contribute to itself.
+		boxHull.base.hash = 0;
+		boxHull.base.hash = b3Hash64NonZero( (uint8_t*)&boxHull.base, boxHull.base.byteCount );
+	}
 
 	return boxHull;
+}
+
+b3BoxHull b3MakeTransformedBoxHull( float hx, float hy, float hz, b3Transform transform )
+{
+	return b3MakeTransformedBoxHullInternal( hx, hy, hz, transform, true );
+}
+
+b3BoxHull b3MakeBoxHullForCollision( float hx, float hy, float hz )
+{
+	return b3MakeTransformedBoxHullInternal( hx, hy, hz, b3Transform_identity, false );
 }
 
 b3BoxHull b3MakeCubeHull( float halfWidth )

@@ -425,6 +425,154 @@ impl WorldLedger {
         self.callback_index.clone()
     }
 
+    pub(crate) fn owner_token(&self) -> OwnerToken {
+        self.owner
+    }
+
+    /// Rebuilds safe provenance after Box3D has replaced a world from a
+    /// self-contained state image. Restored geometry is owned by the native
+    /// image, so shape resources intentionally have no Rust backing sidecar.
+    pub(crate) fn from_loaded_world(
+        owner: OwnerToken,
+        raw_world: ffi::b3WorldId,
+        callback_index: CallbackProvenanceIndex,
+    ) -> Result<Self> {
+        let world0 = u16::try_from(
+            raw_world
+                .index1
+                .checked_sub(1)
+                .ok_or(Error::NativeFailure)?,
+        )
+        .map_err(|_| Error::NativeFailure)?;
+        let body_capacity = unsafe { ffi::b3World_GetBodySleepCapacity(raw_world) };
+        if body_capacity < 0 {
+            return Err(Error::NativeFailure);
+        }
+        let sleep_rows = unsafe {
+            collect_native_rows(body_capacity as usize, |out, capacity| {
+                ffi::b3World_GetBodySleepData(raw_world, out, capacity)
+            })?
+        };
+        if sleep_rows.len() != body_capacity as usize {
+            return Err(Error::NativeFailure);
+        }
+
+        callback_index.clear();
+        let mut ledger = Self::new(owner);
+        ledger.callback_index = callback_index;
+        let mut body_ids = HashMap::new();
+        body_ids
+            .try_reserve(sleep_rows.len())
+            .map_err(|_| Error::AllocationFailed)?;
+
+        for row in &sleep_rows {
+            let raw = row.bodyId;
+            if raw.world0 != world0 || !unsafe { ffi::b3Body_IsValid(raw) } {
+                return Err(Error::NativeFailure);
+            }
+            let pending = ledger.reserve_body()?;
+            let IdentityClassification::Available(identity) = ledger.classify_body(raw) else {
+                return Err(Error::NativeFailure);
+            };
+            let bound = ledger.bind_body(raw, identity, pending)?;
+            let id = ledger.publish_body(bound);
+            if body_ids.insert(BodyKey::from_raw(raw), id).is_some() {
+                return Err(Error::NativeFailure);
+            }
+        }
+
+        let counters = unsafe { ffi::b3World_GetCounters(raw_world) };
+        let mut shape_count = 0usize;
+        let mut joint_raws = HashMap::<JointKey, ffi::b3JointId>::new();
+        joint_raws
+            .try_reserve(counters.jointCount.max(0) as usize)
+            .map_err(|_| Error::AllocationFailed)?;
+
+        for row in &sleep_rows {
+            let raw_body = row.bodyId;
+            let body = *body_ids
+                .get(&BodyKey::from_raw(raw_body))
+                .ok_or(Error::NativeFailure)?;
+
+            let native_shape_count = unsafe { ffi::b3Body_GetShapeCount(raw_body) };
+            if native_shape_count < 0 {
+                return Err(Error::NativeFailure);
+            }
+            let shapes = unsafe {
+                collect_native_rows(native_shape_count as usize, |out, capacity| {
+                    ffi::b3Body_GetShapes(raw_body, out, capacity)
+                })?
+            };
+            if shapes.len() != native_shape_count as usize {
+                return Err(Error::NativeFailure);
+            }
+            for raw_shape in shapes {
+                if raw_shape.world0 != world0
+                    || !unsafe { ffi::b3Shape_IsValid(raw_shape) }
+                    || BodyKey::from_raw(unsafe { ffi::b3Shape_GetBody(raw_shape) })
+                        != BodyKey::from_raw(raw_body)
+                {
+                    return Err(Error::NativeFailure);
+                }
+                let pending = ledger.reserve_shape(body)?;
+                let IdentityClassification::Available(identity) = ledger.classify_shape(raw_shape)
+                else {
+                    return Err(Error::NativeFailure);
+                };
+                ledger.validate_shape_binding(&pending, raw_body)?;
+                let bound = ledger.bind_shape(raw_shape, identity, pending)?;
+                ledger.publish_shape(bound, &mut None);
+                shape_count += 1;
+            }
+
+            let native_joint_count = unsafe { ffi::b3Body_GetJointCount(raw_body) };
+            if native_joint_count < 0 {
+                return Err(Error::NativeFailure);
+            }
+            let joints = unsafe {
+                collect_native_rows(native_joint_count as usize, |out, capacity| {
+                    ffi::b3Body_GetJoints(raw_body, out, capacity)
+                })?
+            };
+            if joints.len() != native_joint_count as usize {
+                return Err(Error::NativeFailure);
+            }
+            for raw_joint in joints {
+                if raw_joint.world0 != world0 || !unsafe { ffi::b3Joint_IsValid(raw_joint) } {
+                    return Err(Error::NativeFailure);
+                }
+                joint_raws.insert(JointKey::from_raw(raw_joint), raw_joint);
+            }
+        }
+
+        for raw_joint in joint_raws.values().copied() {
+            let raw_body_a = unsafe { ffi::b3Joint_GetBodyA(raw_joint) };
+            let raw_body_b = unsafe { ffi::b3Joint_GetBodyB(raw_joint) };
+            let body_a = *body_ids
+                .get(&BodyKey::from_raw(raw_body_a))
+                .ok_or(Error::NativeFailure)?;
+            let body_b = *body_ids
+                .get(&BodyKey::from_raw(raw_body_b))
+                .ok_or(Error::NativeFailure)?;
+            let pending = ledger.reserve_joint(body_a, body_b)?;
+            let IdentityClassification::Available(identity) = ledger.classify_joint(raw_joint)
+            else {
+                return Err(Error::NativeFailure);
+            };
+            ledger.validate_joint_binding(&pending, raw_body_a, raw_body_b)?;
+            let bound = ledger.bind_joint(raw_joint, identity, pending)?;
+            ledger.publish_joint(bound);
+        }
+
+        if sleep_rows.len() != counters.bodyCount.max(0) as usize
+            || shape_count != counters.shapeCount.max(0) as usize
+            || joint_raws.len() != counters.jointCount.max(0) as usize
+        {
+            return Err(Error::NativeFailure);
+        }
+        Ok(ledger)
+    }
+
     pub(crate) fn reserve_body(&mut self) -> Result<PendingResource<BodyResource>> {
         self.body_relations
             .try_reserve(1)
@@ -932,6 +1080,22 @@ impl WorldLedger {
             Err(Error::ForeignHandle { kind })
         }
     }
+}
+
+unsafe fn collect_native_rows<T>(
+    capacity: usize,
+    fill: impl FnOnce(*mut T, i32) -> i32,
+) -> Result<Vec<T>> {
+    let native_capacity = i32::try_from(capacity).map_err(|_| Error::AllocationFailed)?;
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(capacity)
+        .map_err(|_| Error::AllocationFailed)?;
+    let written = fill(rows.as_mut_ptr(), native_capacity);
+    if written < 0 || written > native_capacity {
+        return Err(Error::NativeFailure);
+    }
+    unsafe { rows.set_len(written as usize) };
+    Ok(rows)
 }
 
 fn same_body(left: ffi::b3BodyId, right: ffi::b3BodyId) -> bool {

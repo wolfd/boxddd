@@ -273,4 +273,67 @@ impl World {
         unsafe { ffi::b3World_RebuildStaticTree(self.raw()) };
         Ok(())
     }
+
+    /// Serializes the complete native world into a self-contained image.
+    ///
+    /// The image includes warm-start manifolds, sleep and island state,
+    /// broad-phase data, native id pools, and retained shape geometry.
+    pub fn save_state(&self) -> Result<Vec<u8>> {
+        let _call = self.enter_world_call()?;
+        let mut size = 0;
+        let ptr = unsafe { ffi::b3World_SaveState(self.raw(), &mut size) };
+        if ptr.is_null() || size <= 0 {
+            return Err(Error::NativeFailure);
+        }
+        let image = unsafe { std::slice::from_raw_parts(ptr, size as usize) }.to_vec();
+        unsafe { ffi::b3FreeSaveState(ptr, size) };
+        Ok(image)
+    }
+
+    /// Replaces this world from a self-contained image and rebuilds all safe
+    /// owner-scoped handle provenance from the restored native objects.
+    ///
+    /// Handles minted before this call are stale. Store portable
+    /// [`BodySnapshotId`], [`ShapeSnapshotId`], and [`JointSnapshotId`] values
+    /// beside the image and resolve them after a successful load.
+    pub fn load_state(&mut self, image: &[u8]) -> Result<()> {
+        callback_state::check_not_in_callback()?;
+        if image.is_empty() {
+            return Err(validation::invalid(
+                "world.state_image",
+                InvalidValueReason::Malformed,
+            ));
+        }
+        let _call = self.enter_world_call()?;
+        let owner = self.state().ledger.owner_token();
+        let callback_index = self.state().ledger.callback_index();
+        let loaded = unsafe {
+            ffi::b3World_LoadState(
+                self.raw(),
+                image.as_ptr(),
+                image.len() as std::os::raw::c_int,
+            )
+        };
+        if !loaded {
+            return Err(Error::NativeFailure);
+        }
+
+        let rebuilt =
+            super::ledger::WorldLedger::from_loaded_world(owner, self.raw(), callback_index);
+        self.state().debug_shapes.clear_all();
+        match rebuilt {
+            Ok(ledger) => {
+                self.state_mut().ledger = ledger;
+                self.state_mut().backing_quarantine.clear();
+                Ok(())
+            }
+            Err(error) => {
+                // Native replacement already committed. Never leave the old
+                // ledger authorizing unrelated identities in the new image.
+                self.state_mut().ledger = super::ledger::WorldLedger::new(owner);
+                self.state().poisoned.set(true);
+                Err(error)
+            }
+        }
+    }
 }

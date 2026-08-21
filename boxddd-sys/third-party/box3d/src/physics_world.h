@@ -18,6 +18,7 @@
 
 typedef struct b3Body b3Body;
 typedef struct b3Recording b3Recording;
+typedef struct b3RegistrySlot b3RegistrySlot;
 typedef struct b3Contact b3Contact;
 typedef struct b3Island b3Island;
 typedef struct b3Joint b3Joint;
@@ -105,6 +106,7 @@ typedef struct b3TaskContext
 	int distanceIterations;
 	int pushBackIterations;
 	int rootIterations;
+	b3VoxelCounters voxelCounters;
 
 	// Number of contacts recycled this step (collide pass).
 	int recycledContactCount;
@@ -258,6 +260,17 @@ typedef struct b3World
 	void* userTaskContext;
 	void* userTreeTask;
 
+	// FORK (2026-07-29): solver worker parking. A worker that has waited past its spin
+	// budget without seeing new sync bits sets its bit in `parkedWorkerMask` and blocks
+	// on its own semaphore; whoever publishes sync bits signals exactly the workers whose
+	// bits are set. One semaphore per worker index (not one shared counting semaphore) so
+	// a raced wake leaves at most one stray permit per worker, which the next wait
+	// consumes. B3_MAX_WORKERS is 32, so the mask is exactly one u32. Created for every
+	// index at world creation because b3World_SetWorkerCount can raise the count later.
+	// See b3SolverTask in solver.c for the wait policies and the park handshake.
+	b3Semaphore* workerParkSemaphores[B3_MAX_WORKERS];
+	b3AtomicU32 parkedWorkerMask;
+
 	struct b3Scheduler* scheduler;
 
 	void* userData;
@@ -265,6 +278,12 @@ typedef struct b3World
 	// Non-NULL while a recording session is active. Set by b3World_StartRecording,
 	// cleared by b3World_StopRecording. Hooks in mutators check this before writing.
 	struct b3Recording* recording;
+
+	// Geometry registry retained by the standalone snapshot loader. Meshes and
+	// height fields borrow registry bytes, while compounds and voxels borrow the
+	// reconstructed live objects, so these slots must outlive the restored shapes.
+	b3RegistrySlot* snapshotGeometrySlots;
+	int snapshotGeometrySlotCount;
 
 	// latest inverse sub-step
 	float inv_h;
@@ -347,4 +366,3 @@ static inline void b3FreeManifolds( b3World* world, b3Manifold* manifolds, int c
 	b3FreeElement( allocator, manifolds );
 	b3UnlockMutex( world->manifoldAllocatorMutex );
 }
-

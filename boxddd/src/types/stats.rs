@@ -129,9 +129,213 @@ impl Profile {
     }
 }
 
-/// World counters reported by Box3D for diagnostics and tests.
+/// Per-step voxel collision counters reported by Box3D.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoxelCounters {
+    /// Voxel-versus-voxel collision calls.
+    pub voxel_voxel_calls: i32,
+    /// Voxel-versus-convex collision calls.
+    pub voxel_convex_calls: i32,
+    /// Occupancy queries, including count and fill passes.
+    pub query_calls: i32,
+    /// Chunk coordinates visited by occupancy queries.
+    pub chunks_visited: i32,
+    /// Occupied-list entries tested by occupancy queries.
+    pub occupied_entries_scanned: i32,
+    /// Cells returned across all occupancy-query passes.
+    pub cells_returned: i32,
+    /// Fill passes that repeat a preceding count pass.
+    pub count_fill_rescans: i32,
+    /// Exact voxel-versus-voxel OBB tests.
+    pub obb_tests: i32,
+    /// Exact cell-versus-convex tests.
+    pub convex_leaf_tests: i32,
+    /// Generic hull SAT calls made inside voxel-versus-convex collision.
+    pub hull_sat_calls: i32,
+    /// Cache hits from those generic hull SAT calls.
+    pub hull_sat_cache_hits: i32,
+    /// Raw exact-collision points before surface filtering and reduction.
+    pub raw_contact_points: i32,
+    /// Points rejected because their directed voxel face is internal.
+    pub surface_rejects: i32,
+    /// Deep-overlap fallback contacts emitted.
+    pub deep_overlap_fallbacks: i32,
+    /// Continuous-collision encounters involving voxel shapes.
+    pub ccd_encounters: i32,
+    /// Broad-phase shape proxies visited for moving voxel CCD.
+    pub ccd_broad_phase_visits: i32,
+    /// Convex targets admitted to moving voxel CCD.
+    pub ccd_convex_targets: i32,
+    /// Aggregate targets admitted to moving voxel CCD.
+    pub ccd_aggregate_targets: i32,
+    /// Occupied cells visited by convex-target CCD queries.
+    pub ccd_cells_visited: i32,
+    /// Fully interior cells rejected before exact CCD.
+    pub ccd_interior_rejects: i32,
+    /// Surface cells rejected by the swept corridor.
+    pub ccd_corridor_rejects: i32,
+    /// Exact generic time-of-impact calls made for voxel cells.
+    pub ccd_exact_toi_calls: i32,
+    /// Raw points presented after the online reducer became full.
+    pub reducer_overflow_insertions: i32,
+    /// Normal clusters constructed for voxel contacts.
+    pub normal_clusters: i32,
+    /// Solver manifolds emitted for voxel contacts.
+    pub emitted_manifolds: i32,
+    /// Solver points emitted for voxel contacts.
+    pub emitted_points: i32,
+    /// Emitted points whose prior impulse was restored.
+    pub persisted_points: i32,
+    /// Voxel contact manifold-array reallocations.
+    pub manifold_reallocations: i32,
+    /// Touching voxel contacts routed through the scalar solver path.
+    pub scalar_contacts: i32,
+    /// Touching voxel contacts that emitted exactly one manifold.
+    pub single_manifold_contacts: i32,
+    /// Touching voxel contacts moved between wide and scalar solver storage.
+    pub solver_class_changes: i32,
+    /// Real cell-pair visits classified by canonical patch identity.
+    pub patch_visits: i32,
+    /// Unique exact canonical patch keys.
+    pub patch_unique_keys: i32,
+    /// Patch visits that reused an exact key.
+    pub patch_duplicate_visits: i32,
+    /// Visits covered by the symmetric canonical topology traversal.
+    pub patch_eligible_visits: i32,
+    /// Unique keys covered by that topology traversal.
+    pub patch_eligible_unique_keys: i32,
+    /// Largest visit multiplicity of one key in one contact update.
+    pub patch_max_multiplicity: i32,
+    /// Largest unique-key count in one contact update.
+    pub patch_max_unique_keys: i32,
+    /// Key multiplicities in buckets 1, 2–3, 4–7, 8–15, 16–31, and 32+.
+    pub patch_multiplicity_counts: [i32; 6],
+    /// Visit counts indexed by ordered `(topology_a * 4 + topology_b)`.
+    pub patch_topology_pairs: [i32; 16],
+    /// Exact leaf SAT results selecting a face axis.
+    pub patch_sat_face_axes: i32,
+    /// Exact leaf SAT results selecting an edge axis.
+    pub patch_sat_edge_axes: i32,
+    /// Exact leaf SAT separations.
+    pub patch_sat_separations: i32,
+    /// Real cell pairs excluded by topology pruning.
+    pub topology_pruned_pairs: i32,
+    /// Real leaf pairs represented by canonical candidates.
+    pub represented_leaf_pairs: i32,
+    /// Pseudo-cuboid SAT calls.
+    pub pseudo_sat_calls: i32,
+    /// Canonical keys rejected by pseudo-cuboid separation.
+    pub pseudo_separated_keys: i32,
+    /// Canonical keys retaining at least one real-alias-selected point.
+    pub selected_patch_keys: i32,
+    /// Positive pseudo keys whose points no real alias selected.
+    pub empty_selected_patch_keys: i32,
+    /// Pseudo witnesses rejected by real exposed-face validation.
+    pub pseudo_witness_rejects: i32,
+    /// Pseudo penetrating points rejected by real-cell support depth.
+    pub pseudo_depth_rejects: i32,
+    /// Keys first selected by an alias after their first represented pair.
+    pub pseudo_late_selections: i32,
+    /// Selected patches encountered beyond the solver-manifold budget.
+    pub patch_budget_overflows: i32,
+    /// Solver manifolds emitted from exact canonical patch keys.
+    pub emitted_patch_manifolds: i32,
+    /// Persistent workspace exact-key matches.
+    pub workspace_key_hits: i32,
+    /// Persistent workspace exact-key misses.
+    pub workspace_key_misses: i32,
+    /// Solver points persisted through an exact patch-key match.
+    pub exact_patch_persisted_points: i32,
+    /// Feature matches rejected by the anchor-distance guard.
+    pub feature_remap_rejects: i32,
+    /// Positive pseudo keys recovered by exact leaves after no alias selected a pseudo point.
+    pub empty_patch_fallback_keys: i32,
+    /// Exact leaf SAT calls made by empty-selection recovery.
+    pub patch_leaf_fallback_tests: i32,
+    /// Geometric growth operations in transient patch tables.
+    pub patch_table_growths: i32,
+    /// Largest transient patch scratch allocation in bytes.
+    pub patch_scratch_peak_bytes: i32,
+    /// Large aggregate pairs routed through one complete leaf traversal.
+    pub adaptive_leaf_pairs: i32,
+}
+
+impl VoxelCounters {
+    /// Converts raw Box3D voxel counters into the Rust value type.
+    #[inline]
+    pub const fn from_raw(raw: ffi::b3VoxelCounters) -> Self {
+        Self {
+            voxel_voxel_calls: raw.voxelVoxelCalls,
+            voxel_convex_calls: raw.voxelConvexCalls,
+            query_calls: raw.queryCalls,
+            chunks_visited: raw.chunksVisited,
+            occupied_entries_scanned: raw.occupiedEntriesScanned,
+            cells_returned: raw.cellsReturned,
+            count_fill_rescans: raw.countFillRescans,
+            obb_tests: raw.obbTests,
+            convex_leaf_tests: raw.convexLeafTests,
+            hull_sat_calls: raw.hullSatCalls,
+            hull_sat_cache_hits: raw.hullSatCacheHits,
+            raw_contact_points: raw.rawContactPoints,
+            surface_rejects: raw.surfaceRejects,
+            deep_overlap_fallbacks: raw.deepOverlapFallbacks,
+            ccd_encounters: raw.ccdEncounters,
+            ccd_broad_phase_visits: raw.ccdBroadPhaseVisits,
+            ccd_convex_targets: raw.ccdConvexTargets,
+            ccd_aggregate_targets: raw.ccdAggregateTargets,
+            ccd_cells_visited: raw.ccdCellsVisited,
+            ccd_interior_rejects: raw.ccdInteriorRejects,
+            ccd_corridor_rejects: raw.ccdCorridorRejects,
+            ccd_exact_toi_calls: raw.ccdExactToiCalls,
+            reducer_overflow_insertions: raw.reducerOverflowInsertions,
+            normal_clusters: raw.normalClusters,
+            emitted_manifolds: raw.emittedManifolds,
+            emitted_points: raw.emittedPoints,
+            persisted_points: raw.persistedPoints,
+            manifold_reallocations: raw.manifoldReallocations,
+            scalar_contacts: raw.scalarContacts,
+            single_manifold_contacts: raw.singleManifoldContacts,
+            solver_class_changes: raw.solverClassChanges,
+            patch_visits: raw.patchVisits,
+            patch_unique_keys: raw.patchUniqueKeys,
+            patch_duplicate_visits: raw.patchDuplicateVisits,
+            patch_eligible_visits: raw.patchEligibleVisits,
+            patch_eligible_unique_keys: raw.patchEligibleUniqueKeys,
+            patch_max_multiplicity: raw.patchMaxMultiplicity,
+            patch_max_unique_keys: raw.patchMaxUniqueKeys,
+            patch_multiplicity_counts: raw.patchMultiplicityCounts,
+            patch_topology_pairs: raw.patchTopologyPairs,
+            patch_sat_face_axes: raw.patchSatFaceAxes,
+            patch_sat_edge_axes: raw.patchSatEdgeAxes,
+            patch_sat_separations: raw.patchSatSeparations,
+            topology_pruned_pairs: raw.topologyPrunedPairs,
+            represented_leaf_pairs: raw.representedLeafPairs,
+            pseudo_sat_calls: raw.pseudoSatCalls,
+            pseudo_separated_keys: raw.pseudoSeparatedKeys,
+            selected_patch_keys: raw.selectedPatchKeys,
+            empty_selected_patch_keys: raw.emptySelectedPatchKeys,
+            pseudo_witness_rejects: raw.pseudoWitnessRejects,
+            pseudo_depth_rejects: raw.pseudoDepthRejects,
+            pseudo_late_selections: raw.pseudoLateSelections,
+            patch_budget_overflows: raw.patchBudgetOverflows,
+            emitted_patch_manifolds: raw.emittedPatchManifolds,
+            workspace_key_hits: raw.workspaceKeyHits,
+            workspace_key_misses: raw.workspaceKeyMisses,
+            exact_patch_persisted_points: raw.exactPatchPersistedPoints,
+            feature_remap_rejects: raw.featureRemapRejects,
+            empty_patch_fallback_keys: raw.emptyPatchFallbackKeys,
+            patch_leaf_fallback_tests: raw.patchLeafFallbackTests,
+            patch_table_growths: raw.patchTableGrowths,
+            patch_scratch_peak_bytes: raw.patchScratchPeakBytes,
+            adaptive_leaf_pairs: raw.adaptiveLeafPairs,
+        }
+    }
+}
+
+/// World counters reported by Box3D for diagnostics and tests.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Counters {
     /// Number of live bodies.
     pub body_count: i32,
@@ -161,8 +365,11 @@ pub struct Counters {
     pub task_count: i32,
     /// Solver graph color distribution.
     pub color_counts: [i32; 24],
-    /// Contact manifold point-count distribution.
+    /// Per-contact manifold-count distribution. Index zero counts contacts
+    /// with one manifold; the final bucket includes all larger counts.
     pub manifold_counts: [i32; 8],
+    /// Detailed per-step voxel collision work.
+    pub voxel: VoxelCounters,
     /// Number of awake contacts.
     pub awake_contact_count: i32,
     /// Number of recycled contacts.
@@ -195,11 +402,40 @@ impl Counters {
             task_count: raw.taskCount,
             color_counts: raw.colorCounts,
             manifold_counts: raw.manifoldCounts,
+            voxel: VoxelCounters::from_raw(raw.voxel),
             awake_contact_count: raw.awakeContactCount,
             recycled_contact_count: raw.recycledContactCount,
             distance_iterations: raw.distanceIterations,
             push_back_iterations: raw.pushBackIterations,
             root_iterations: raw.rootIterations,
+        }
+    }
+}
+
+impl Default for Counters {
+    fn default() -> Self {
+        Self {
+            body_count: 0,
+            shape_count: 0,
+            contact_count: 0,
+            joint_count: 0,
+            island_count: 0,
+            stack_used: 0,
+            arena_capacity: 0,
+            static_tree_height: 0,
+            tree_height: 0,
+            sat_call_count: 0,
+            sat_cache_hit_count: 0,
+            byte_count: 0,
+            task_count: 0,
+            color_counts: [0; 24],
+            manifold_counts: [0; 8],
+            voxel: VoxelCounters::default(),
+            awake_contact_count: 0,
+            recycled_contact_count: 0,
+            distance_iterations: 0,
+            push_back_iterations: 0,
+            root_iterations: 0,
         }
     }
 }

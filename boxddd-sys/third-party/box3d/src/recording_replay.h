@@ -72,6 +72,9 @@ typedef struct b3RegistrySlot
 	void* live;		// reconstructed live object, freed after b3DestroyWorld
 } b3RegistrySlot;
 
+// Release a loaded registry after every world borrowing from it is gone.
+void b3RecFreeSlots( b3RegistrySlot* slots, int slotCount );
+
 // This is used to simplify the scratch buffer lifetime. Names longer than this probably
 // indicate a bug.
 #define B3_MAX_NAME_LENGTH 256

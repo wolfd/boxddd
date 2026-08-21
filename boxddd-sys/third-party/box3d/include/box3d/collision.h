@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+typedef struct b3VoxelData b3VoxelData;
+
 /**
  * @addtogroup tree
  * @{
@@ -634,6 +636,10 @@ B3_API void b3CollideHullAndCapsule( b3LocalManifold* manifold, int capacity, co
 /// Collide two hulls.
 B3_API void b3CollideHulls( b3LocalManifold* manifold, int capacity, const b3HullData* hullA, const b3HullData* hullB,
 							b3Transform transformBtoA, b3SATCache* cache );
+
+/// Collide sparse voxel data and a convex hull. The returned manifold is in the voxel frame and its normal points voxel to hull.
+B3_API void b3CollideVoxelAndHull( b3LocalManifold* manifold, int capacity, const b3VoxelData* voxelA,
+								   const b3HullData* hullB, b3Transform transformBtoA );
 
 /// Collide a triangle and capsule. Normal points from triangle to capsule.
 B3_API void b3CollideTriangleAndCapsule( b3LocalManifold* manifold, int capacity, const b3Vec3* triangleA,

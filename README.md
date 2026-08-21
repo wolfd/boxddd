@@ -242,4 +242,7 @@ More maintainer commands are documented in [`docs/development/ci.md`](docs/devel
 
 ## License
 
-`boxddd`, `boxddd-sys`, and `bevy_boxddd` are licensed as MIT OR Apache-2.0. Vendored Box3D is MIT-licensed.
+`boxddd`, `boxddd-sys`, and `bevy_boxddd` are licensed as MIT OR Apache-2.0.
+Vendored Box3D is MIT-licensed. The added voxel collider's source and design
+references are recorded in
+[`VOXEL_COLLIDER_PROVENANCE.md`](boxddd-sys/third-party/box3d/VOXEL_COLLIDER_PROVENANCE.md).

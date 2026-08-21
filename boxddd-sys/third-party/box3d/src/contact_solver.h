@@ -9,6 +9,9 @@
 typedef struct b3ManifoldConstraintPoint
 {
 	b3Vec3 rA, rB;
+	// Angular velocity change per unit normal impulse. Preparation already
+	// computes these products for effective mass; solver passes reuse them.
+	b3Vec3 normalTorqueA, normalTorqueB;
 	float baseSeparation;
 	float relativeVelocity;
 	float normalImpulse;
@@ -24,6 +27,9 @@ typedef struct b3ManifoldConstraint
 	b3Vec3 normal;
 	b3Vec3 tangent1;
 	b3Vec3 tangent2;
+	b3Vec3 tangentTorqueA1, tangentTorqueA2;
+	b3Vec3 tangentTorqueB1, tangentTorqueB2;
+	b3Vec3 twistTorqueA, twistTorqueB;
 	// Friction centers
 	b3Vec3 centerA, centerB;
 	float twistMass;

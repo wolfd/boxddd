@@ -808,6 +808,15 @@
       "wasm_source_double": "required-supported"
     },
     {
+      "name": "b3CollideVoxelAndHull",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
       "name": "b3ComputeCapsuleAABB",
       "native_default": "required-supported",
       "native_double": "required-supported",
@@ -1114,6 +1123,15 @@
       "wasm_source_double": "required-supported"
     },
     {
+      "name": "b3CreateOffsetVoxelData",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
       "name": "b3CreateParallelJoint",
       "native_default": "required-supported",
       "native_double": "required-supported",
@@ -1124,6 +1142,15 @@
     },
     {
       "name": "b3CreatePlatformMesh",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3CreatePlayer",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -1196,6 +1223,24 @@
     },
     {
       "name": "b3CreateTransformedHullShape",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3CreateVoxelData",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3CreateVoxelShape",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -1465,6 +1510,15 @@
       "wasm_source_double": "required-supported"
     },
     {
+      "name": "b3DestroyPlayer",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
       "name": "b3DestroyRecording",
       "native_default": "required-supported",
       "native_double": "required-supported",
@@ -1475,6 +1529,15 @@
     },
     {
       "name": "b3DestroyShape",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3DestroyVoxelData",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -1898,6 +1961,15 @@
     },
     {
       "name": "b3DynamicTree_ValidateNoEnlarged",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3FreeSaveState",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -3085,24 +3157,6 @@
       "wasm_source_double": "required-supported"
     },
     {
-      "name": "b3RecPlayer_Create",
-      "native_default": "required-supported",
-      "native_double": "required-supported",
-      "wasm_provider_default_symbol": "required-supported",
-      "wasm_provider_double_symbol": "intentionally-unsupported",
-      "wasm_source_default": "required-supported",
-      "wasm_source_double": "required-supported"
-    },
-    {
-      "name": "b3RecPlayer_Destroy",
-      "native_default": "required-supported",
-      "native_double": "required-supported",
-      "wasm_provider_default_symbol": "required-supported",
-      "wasm_provider_double_symbol": "intentionally-unsupported",
-      "wasm_source_default": "required-supported",
-      "wasm_source_double": "required-supported"
-    },
-    {
       "name": "b3RecPlayer_DrawFrameQueries",
       "native_default": "required-supported",
       "native_double": "required-supported",
@@ -3832,6 +3886,15 @@
       "wasm_source_double": "required-supported"
     },
     {
+      "name": "b3Shape_GetFatAABB",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
       "name": "b3Shape_GetFilter",
       "native_default": "required-supported",
       "native_double": "required-supported",
@@ -3959,6 +4022,15 @@
     },
     {
       "name": "b3Shape_GetUserData",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3Shape_GetVoxel",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -4382,6 +4454,60 @@
     },
     {
       "name": "b3ValidateReplay",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3VoxelData_GetBounds",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3VoxelData_GetCellCount",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3VoxelData_GetCells",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3VoxelData_GetOrigin",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3VoxelData_GetVoxelSize",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3VoxelData_IsSolid",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -4921,7 +5047,43 @@
       "wasm_source_double": "required-supported"
     },
     {
+      "name": "b3World_GetBodySleepCapacity",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3World_GetBodySleepData",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
       "name": "b3World_GetBounds",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3World_GetContactCapacity",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3World_GetContactData",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -4967,6 +5129,24 @@
     },
     {
       "name": "b3World_GetHitEventThreshold",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3World_GetIslandCensusCapacity",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3World_GetIslandCensusData",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -5083,6 +5263,15 @@
       "wasm_source_double": "required-supported"
     },
     {
+      "name": "b3World_LoadState",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
       "name": "b3World_OverlapAABB",
       "native_default": "required-supported",
       "native_double": "required-supported",
@@ -5102,6 +5291,15 @@
     },
     {
       "name": "b3World_RebuildStaticTree",
+      "native_default": "required-supported",
+      "native_double": "required-supported",
+      "wasm_provider_default_symbol": "required-supported",
+      "wasm_provider_double_symbol": "intentionally-unsupported",
+      "wasm_source_default": "required-supported",
+      "wasm_source_double": "required-supported"
+    },
+    {
+      "name": "b3World_SaveState",
       "native_default": "required-supported",
       "native_double": "required-supported",
       "wasm_provider_default_symbol": "required-supported",
@@ -5255,5 +5453,5 @@
     }
   ],
   "schema_version": 1,
-  "upstream_commit": "781673be801569a94be7942848755fc0baad3653"
+  "upstream_commit": "30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c"
 }

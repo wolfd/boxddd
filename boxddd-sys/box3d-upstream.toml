@@ -2,11 +2,12 @@ schema_version = 1
 
 [upstream]
 repository = "https://github.com/erincatto/box3d.git"
-commit = "781673be801569a94be7942848755fc0baad3653"
+commit = "30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c"
 
 [vendor]
 root = "boxddd-sys/third-party/box3d"
 paths = [
+    "CMakeLists.txt",
     "LICENSE",
     "README.md",
     "include/box3d/base.h",
@@ -17,6 +18,20 @@ paths = [
     "include/box3d/id.h",
     "include/box3d/math_functions.h",
     "include/box3d/types.h",
+    "shared/CMakeLists.txt",
+    "shared/benchmarks.c",
+    "shared/benchmarks.h",
+    "shared/determinism.c",
+    "shared/determinism.h",
+    "shared/human.c",
+    "shared/human.h",
+    "shared/overflow_color.c",
+    "shared/overflow_color.h",
+    "shared/stability.c",
+    "shared/stability.h",
+    "shared/utils.c",
+    "shared/utils.h",
+    "src/CMakeLists.txt",
     "src/aabb.c",
     "src/aabb.h",
     "src/algorithm.h",
@@ -28,6 +43,7 @@ paths = [
     "src/block_allocator.h",
     "src/body.c",
     "src/body.h",
+    "src/box3d.natvis",
     "src/broad_phase.c",
     "src/broad_phase.h",
     "src/capsule.c",
@@ -74,6 +90,7 @@ paths = [
     "src/platform.h",
     "src/prismatic_joint.c",
     "src/qsort.h",
+    "src/rapidhash.h",
     "src/recording.c",
     "src/recording.h",
     "src/recording_ops.inl",
@@ -104,6 +121,33 @@ paths = [
     "src/wheel_joint.c",
     "src/world_snapshot.c",
     "src/world_snapshot.h",
+    "test/CMakeLists.txt",
+    "test/main.c",
+    "test/test_allocator.c",
+    "test/test_bitset.c",
+    "test/test_body.c",
+    "test/test_body_query.c",
+    "test/test_collision.c",
+    "test/test_compound.c",
+    "test/test_container.c",
+    "test/test_determinism.c",
+    "test/test_distance.c",
+    "test/test_hash.c",
+    "test/test_height_field.c",
+    "test/test_hull.c",
+    "test/test_id.c",
+    "test/test_joint.c",
+    "test/test_large_world.c",
+    "test/test_macros.h",
+    "test/test_manifold.c",
+    "test/test_math.c",
+    "test/test_mover.c",
+    "test/test_name_cache.c",
+    "test/test_recording.c",
+    "test/test_sat.c",
+    "test/test_shape.c",
+    "test/test_table.c",
+    "test/test_world.c",
 ]
 
 [[patches]]
@@ -117,6 +161,18 @@ path = "boxddd-sys/patches/0002-ccd-null-pre-solve-guard.patch"
 sha256 = "3fa9333b58ee555c7253b7591af1b7bcb02b0f270c1a10d1290098fe79bae169"
 target = "src/solver.c"
 rationale = "Match the discrete contact path by treating an absent pre-solve callback as allow-all during continuous collision detection, including replay-owned worlds."
+
+[[patches]]
+path = "boxddd-sys/patches/0003-voxel-collider.patch"
+sha256 = "39ae62e0003c62fa0c22035484ea9f882f18c787720a1fa6e4770fdc00ac1a9c"
+target = "include/box3d/voxel.h"
+rationale = "Add a sparse voxel shape with specialized collision and CCD paths, snapshot and replay support, solver integration, instrumentation, provenance notice, and a native correctness corpus."
+
+[[patches]]
+path = "boxddd-sys/patches/0004-scheduler-thread-name-buffer.patch"
+sha256 = "38cd9707a9836968222bdb0a9cf06377dabd4fef43ea85863bbdc3067b06fb7b"
+target = "src/scheduler.c"
+rationale = "Keep strict GCC format-truncation builds valid for every scheduler worker and solver task index allowed by the public bounds."
 
 [provider]
 module = "box3d-sys-v2"
@@ -159,11 +215,11 @@ inventory = "docs/upstream-parity/box3d-sample-inventory.json"
 inventory = "docs/upstream-parity/box3d-capability-inventory.json"
 
 [fingerprints]
-vendor = "9d20ff91dc0c64be3d2762be15e84cd267600a86d704ace2e5fd5cd09690e175"
-headers = "f2c40bdbb5506997043e07d0e1e8e77c9d2f57398491e6de27561d4bbb054e5d"
-patches = "93b0ce8f20fa749f8618e5a91a26c1a891303e6a1acae26160cc3f69a9ac0433"
-bindings_default = "ba7f38b21e87aa58eb039e9458d6815c8128e107b914bd2aec11da4d6f5a105d"
-bindings_double = "cde26e95b6dfdcce2b8547f3d46f2ddc5f606167bdc5ea104a830afbf1dfea30"
-samples = "dce341110adeba31aa7ef2bdd0c8a59be30a12e679185cd8f99142f12f9d2c6a"
-capabilities = "14ff04b5e4119ffda6986cf7046fc4e633b2a3b5cde10330686c4723f80ea4a4"
-rust_contract = "d7c4bceb1a46dc87fcddd9645dc514e334aead75061473606e963c19de351806"
+vendor = "23dc753dd7c4c33903d78cc93f525c1ed5924ba8d4150a0c6a1d7b3d59d9606d"
+headers = "9e53402d5c88470cf253905cffd9282af90d54fe3bba5bf62fc217fbdbd6cac8"
+patches = "6b66304282171a6e3e7c4cb6a653a34f9814d2b46adf298bd02a9287df3e815d"
+bindings_default = "f14e1f7be0502491ca6743f246e19e246e5c91400b961b1aff65917838d178de"
+bindings_double = "eb7b78610af62cdc5b214b7b7e792a64a067f8147434d232aaf4f00474d1ef9d"
+samples = "e435b66fa1ac3282f2aa9bcdbaf423f170aed9f22b86e7831914b7779f9dd49d"
+capabilities = "819de3cfce98f860f7fc2f04472d1fb1776bfc428aeff2591c564b7752d05e99"
+rust_contract = "0a6f2f94471f90d26b4dbf0ac283575043255e8de0efa03ddd6e9286526dbf17"

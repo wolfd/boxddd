@@ -8,8 +8,8 @@
 #include "recording_replay.h"
 
 #include "body.h"
-#include "compound.h"
 #include "physics_world.h"
+#include "voxel_shape.h"
 #include "world_snapshot.h"
 
 #include "box3d/box3d.h"
@@ -740,6 +740,15 @@ static void* b3RecGetLiveCompound( b3RegistrySlot* slot )
 	return slot->live;
 }
 
+static void* b3RecGetLiveVoxel( b3RegistrySlot* slot )
+{
+	if ( slot->live == NULL )
+	{
+		slot->live = b3Voxel_Deserialize( slot->bytes, slot->byteCount );
+	}
+	return slot->live;
+}
+
 // Dispatch functions, one per op
 
 static void b3RecDispatch_DestroyWorld( const b3RecArgs_DestroyWorld* a, b3RecReader* rdr )
@@ -1054,6 +1063,39 @@ static void b3RecDispatch_CreateHeightFieldShape( const b3RecArgs_CreateHeightFi
 	}
 	b3BodyId bodyId = b3RecMakeBodyId( rdr, a->body );
 	b3ShapeId gotId = b3CreateHeightFieldShape( bodyId, &a->def, hf );
+	b3RecCheckShapeId( rdr, gotId, recId );
+}
+
+static void b3RecDispatch_CreateVoxelShape( const b3RecArgs_CreateVoxelShape* a, b3RecReader* rdr )
+{
+	b3ShapeId recId = b3RecR_SHAPEID( rdr );
+	if ( !rdr->ok )
+	{
+		return;
+	}
+	uint32_t id = a->geometryId;
+	if ( id >= (uint32_t)rdr->slotCount )
+	{
+		printf( "b3ReplayFile: voxel geometryId %u out of range\n", id );
+		rdr->ok = false;
+		return;
+	}
+	b3RegistrySlot* slot = rdr->slots + id;
+	if ( slot->kind != b3_geometryVoxel )
+	{
+		printf( "b3ReplayFile: geometry %u is not voxel data\n", id );
+		rdr->ok = false;
+		return;
+	}
+	const b3VoxelData* voxel = b3RecGetLiveVoxel( slot );
+	if ( voxel == NULL )
+	{
+		printf( "b3ReplayFile: voxel geometry %u is corrupt\n", id );
+		rdr->ok = false;
+		return;
+	}
+	b3BodyId bodyId = b3RecMakeBodyId( rdr, a->body );
+	b3ShapeId gotId = b3CreateVoxelShape( bodyId, &a->def, voxel );
 	b3RecCheckShapeId( rdr, gotId, recId );
 }
 
@@ -1872,7 +1914,7 @@ static void b3RecComputeQueryBounds( b3RecDrawQuery* q )
 	// Sweep each point across the translation. A non-cast query has zero translation, so both ends
 	// coincide and the duplicates fold away.
 	b3Pos end = b3OffsetPos( q->origin, q->translation );
-	b3Vec3 world[2 * B3_MAX_SHAPE_CAST_POINTS];
+	b3Vec3 world[2 * B3_MAX_SHAPE_CAST_POINTS] = { 0 };
 	int n = 0;
 	for ( int i = 0; i < count; ++i )
 	{
@@ -2176,7 +2218,7 @@ static int b3RecDispatchOne( b3RecReader* rdr )
 
 bool b3ValidateReplay( const void* data, int size, int workerCount )
 {
-	b3RecPlayer* player = b3RecPlayer_Create( data, size, workerCount );
+	b3RecPlayer* player = b3CreatePlayer( data, size, workerCount );
 	if ( player == NULL )
 	{
 		return false;
@@ -2191,7 +2233,7 @@ bool b3ValidateReplay( const void* data, int size, int workerCount )
 	}
 
 	bool ok = player->rdr.ok && player->rdr.diverged == false;
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	return ok;
 }
 
@@ -2497,7 +2539,7 @@ static bool b3RecLoadSlots( b3RecReader* rdr, const void* data, int size, uint64
 }
 
 // Free slots loaded by b3RecLoadSlots.
-static void b3RecFreeSlots( b3RegistrySlot* slots, int slotCount )
+void b3RecFreeSlots( b3RegistrySlot* slots, int slotCount )
 {
 	if ( slots == NULL )
 	{
@@ -2513,6 +2555,9 @@ static void b3RecFreeSlots( b3RegistrySlot* slots, int slotCount )
 				// Mesh and height field have no separate live object; they borrow the bytes freed below.
 				case b3_geometryCompound:
 					b3Free( slot->live, (size_t)slot->byteCount );
+					break;
+				case b3_geometryVoxel:
+					b3DestroyVoxelData( (b3VoxelData*)slot->live );
 					break;
 				default:
 					break;
@@ -2600,7 +2645,7 @@ static void b3RecSeedKeyframeRegistry( b3RecPlayer* player )
 		{
 			memcpy( copy, slot->bytes, (size_t)slot->byteCount );
 		}
-		uint64_t h = b3Hash64Blob( slot->bytes, slot->byteCount );
+		uint64_t h = b3Hash64NonZero( slot->bytes, slot->byteCount );
 		uint32_t id = b3AppendGeometry( reg, slot->kind, h, copy, slot->byteCount );
 		// Seeding in order without dedup keeps id == slot index.
 		B3_ASSERT( id == (uint32_t)i );
@@ -2724,11 +2769,11 @@ static b3WorldId b3RecPlayerCreateWorld( const b3RecPlayer* player )
 	return b3CreateWorld( &worldDef );
 }
 
-b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
+b3RecPlayer* b3CreatePlayer( const void* data, int size, int workerCount )
 {
 	if ( data == NULL || size < (int)sizeof( b3RecHeader ) )
 	{
-		printf( "b3RecPlayer_Create: recording too small\n" );
+		printf( "b3CreatePlayer: recording too small\n" );
 		return NULL;
 	}
 
@@ -2737,32 +2782,32 @@ b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
 
 	if ( hdr.magic != B3_REC_MAGIC )
 	{
-		printf( "b3RecPlayer_Create: bad magic 0x%08X\n", hdr.magic );
+		printf( "b3CreatePlayer: bad magic 0x%08X\n", hdr.magic );
 		return NULL;
 	}
 	// Only the major version is breaking. Minor bumps are additive op-stream changes that keep the
 	// header shape, and the dispatcher skips opcodes it doesn't know, so a minor mismatch still loads.
 	if ( hdr.versionMajor != B3_REC_VERSION_MAJOR )
 	{
-		printf( "b3RecPlayer_Create: version mismatch %u.%u vs %u.%u\n", hdr.versionMajor, hdr.versionMinor, B3_REC_VERSION_MAJOR,
+		printf( "b3CreatePlayer: version mismatch %u.%u vs %u.%u\n", hdr.versionMajor, hdr.versionMinor, B3_REC_VERSION_MAJOR,
 				B3_REC_VERSION_MINOR );
 		return NULL;
 	}
 	if ( hdr.pointerWidth != (uint8_t)sizeof( void* ) )
 	{
-		printf( "b3RecPlayer_Create: pointer width mismatch %u vs %u\n", hdr.pointerWidth, (unsigned)sizeof( void* ) );
+		printf( "b3CreatePlayer: pointer width mismatch %u vs %u\n", hdr.pointerWidth, (unsigned)sizeof( void* ) );
 		return NULL;
 	}
 	if ( hdr.bigEndian != 0 )
 	{
-		printf( "b3RecPlayer_Create: big-endian recording not supported\n" );
+		printf( "b3CreatePlayer: big-endian recording not supported\n" );
 		return NULL;
 	}
 
 	// Every recording is snapshot-seeded: the seed blob sits between the header and the op stream.
 	if ( hdr.snapshotSize == 0 )
 	{
-		printf( "b3RecPlayer_Create: missing snapshot seed\n" );
+		printf( "b3CreatePlayer: missing snapshot seed\n" );
 		return NULL;
 	}
 
@@ -2773,7 +2818,7 @@ b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
 
 	if ( headerEnd64 < sizeof( b3RecHeader ) || headerEnd64 > registryEnd64 || registryEnd64 > (uint64_t)size )
 	{
-		printf( "b3RecPlayer_Create: corrupt offsets\n" );
+		printf( "b3CreatePlayer: corrupt offsets\n" );
 		return NULL;
 	}
 
@@ -2845,7 +2890,7 @@ b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
 		b3World* replayWorld = b3GetWorldFromId( worldId );
 		if ( b3DeserializeIntoShell( copy + snapStart, snapSize, replayWorld, &player->rdr ) == false )
 		{
-			printf( "b3RecPlayer_Create: snapshot deserialization failed\n" );
+			printf( "b3CreatePlayer: snapshot deserialization failed\n" );
 			b3DestroyWorld( worldId );
 			b3RecFreeSlots( player->rdr.slots, player->rdr.slotCount );
 			if ( player->rdr.tags != NULL )
@@ -2878,7 +2923,7 @@ b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount )
 	return player;
 }
 
-void b3RecPlayer_Destroy( b3RecPlayer* player )
+void b3DestroyPlayer( b3RecPlayer* player )
 {
 	if ( player == NULL )
 	{
@@ -3670,4 +3715,140 @@ void b3RecPlayer_SetDebugShapeCallbacks( b3RecPlayer* player, b3CreateDebugShape
 
 	// Rebuild the outliner from the frame-0 world that was just stood up under the new callbacks.
 	b3RecSeedFrame0BodyIds( player );
+}
+
+
+// ============================================================================
+// Standalone world save/restore (b3World_SaveState / b3World_LoadState).
+//
+// Lives here because it needs b3RecLoadSlots, which is static to this file, and
+// the serializer pair from world_snapshot.h. The layout matches a recording's
+// prefix exactly — header, snapshot image, trailing geometry registry — so the
+// two formats stay in step and the existing loader can be reused verbatim.
+// ============================================================================
+
+uint8_t* b3World_SaveState( b3WorldId worldId, int* size )
+{
+	if ( size != NULL )
+	{
+		*size = 0;
+	}
+	if ( b3World_IsValid( worldId ) == false )
+	{
+		return NULL;
+	}
+	b3World* world = b3GetWorldFromId( worldId );
+
+	// A scratch recording, used only for its geometry registry: b3SerializeWorld
+	// interns each distinct shape blob into it and stores the resulting id in
+	// the image, so the registry has to travel with the snapshot.
+	b3Recording* rec = b3CreateRecording( 1024 );
+	if ( rec == NULL )
+	{
+		return NULL;
+	}
+
+	b3RecBuffer snap = { 0 };
+	b3SerializeWorld( world, &snap, rec );
+
+	b3RecHeader hdr = { 0 };
+	hdr.magic = B3_REC_MAGIC;
+	hdr.versionMajor = B3_REC_VERSION_MAJOR;
+	hdr.versionMinor = B3_REC_VERSION_MINOR;
+	hdr.pointerWidth = (uint8_t)sizeof( void* );
+	hdr.bigEndian = 0;
+	hdr.validationEnabled = B3_ENABLE_VALIDATION ? 1u : 0u;
+	hdr.lengthScale = b3GetLengthUnitsPerMeter();
+	hdr.snapshotSize = (uint64_t)snap.size;
+
+	// Serialize the registry into the scratch recording's own buffer, then lay
+	// out [header][snapshot][registry] and backpatch the offsets.
+	rec->buffer.size = 0;
+	b3RecWriteRegistry( rec );
+
+	hdr.registryOffset = (uint64_t)( sizeof( hdr ) + (size_t)snap.size );
+	hdr.registryByteCount = (uint64_t)rec->buffer.size;
+
+	int total = (int)sizeof( hdr ) + snap.size + rec->buffer.size;
+	uint8_t* out = (uint8_t*)b3Alloc( (size_t)total );
+	if ( out != NULL )
+	{
+		memcpy( out, &hdr, sizeof( hdr ) );
+		if ( snap.size > 0 )
+		{
+			memcpy( out + sizeof( hdr ), snap.data, (size_t)snap.size );
+		}
+		if ( rec->buffer.size > 0 )
+		{
+			memcpy( out + hdr.registryOffset, rec->buffer.data, (size_t)rec->buffer.size );
+		}
+		if ( size != NULL )
+		{
+			*size = total;
+		}
+	}
+
+	b3RecBufFree( &snap );
+	b3DestroyRecording( rec );
+	return out;
+}
+
+void b3FreeSaveState( uint8_t* data, int size )
+{
+	if ( data != NULL && size > 0 )
+	{
+		b3Free( data, (size_t)size );
+	}
+}
+
+bool b3World_LoadState( b3WorldId worldId, const uint8_t* data, int size )
+{
+	if ( b3World_IsValid( worldId ) == false || data == NULL || size < (int)sizeof( b3RecHeader ) )
+	{
+		return false;
+	}
+
+	b3RecHeader hdr;
+	memcpy( &hdr, data, sizeof( hdr ) );
+	if ( hdr.magic != B3_REC_MAGIC || hdr.versionMajor != B3_REC_VERSION_MAJOR )
+	{
+		return false;
+	}
+	if ( hdr.pointerWidth != (uint8_t)sizeof( void* ) || hdr.bigEndian != 0 )
+	{
+		return false;
+	}
+	if ( (uint64_t)sizeof( hdr ) + hdr.snapshotSize > (uint64_t)size )
+	{
+		return false;
+	}
+
+	b3RecReader rdr = { 0 };
+	rdr.ok = true;
+	if ( b3RecLoadSlots( &rdr, data, size, hdr.registryOffset, hdr.registryByteCount ) == false )
+	{
+		return false;
+	}
+
+	b3World* world = b3GetWorldFromId( worldId );
+	b3RegistrySlot* oldSlots = world->snapshotGeometrySlots;
+	int oldSlotCount = world->snapshotGeometrySlotCount;
+	bool ok = b3DeserializeIntoShell( data + sizeof( hdr ), (int)hdr.snapshotSize, world, &rdr );
+	if ( ok )
+	{
+		// Shapes restored above borrow geometry owned by rdr. Transfer those slots
+		// to the world, then release the registry from its previous snapshot only
+		// after the old shapes have been torn down by deserialization.
+		world->snapshotGeometrySlots = rdr.slots;
+		world->snapshotGeometrySlotCount = rdr.slotCount;
+		rdr.slots = NULL;
+		rdr.slotCount = 0;
+		b3RecFreeSlots( oldSlots, oldSlotCount );
+	}
+
+	if ( rdr.slots != NULL )
+	{
+		b3RecFreeSlots( rdr.slots, rdr.slotCount );
+	}
+	return ok;
 }

@@ -5,7 +5,7 @@ use crate::core::{callback_state, validation};
 #[cfg(all(target_arch = "wasm32", boxddd_wasm_provider))]
 use crate::error::Error;
 use crate::error::Result;
-use crate::shapes::ShapeType;
+use crate::shapes::{ShapeType, VoxelCell};
 use crate::types::{Aabb, Plane, Pos, ShapeId, Transform, Vec3, WorldTransform};
 use crate::world::World;
 use crate::world::ledger::CallbackProvenanceIndex;
@@ -249,6 +249,17 @@ pub enum DebugShapeGeometry {
         /// Owned mesh data.
         mesh: DebugMesh,
     },
+    /// Sparse voxel occupancy in the shape's local grid.
+    Voxel {
+        /// Local-space bounds of occupied cells.
+        bounds: Aabb,
+        /// Local-space center of integer cell `(0, 0, 0)`.
+        origin: Vec3,
+        /// Canonically ordered occupied cells.
+        cells: Vec<VoxelCell>,
+        /// Uniform cell edge length.
+        voxel_size: f32,
+    },
     /// Compound geometry flattened into owned children.
     Compound {
         /// Flattened child shapes.
@@ -266,6 +277,7 @@ impl DebugShapeGeometry {
             Self::Hull { .. } => Some(ShapeType::Hull),
             Self::Mesh { .. } => Some(ShapeType::Mesh),
             Self::HeightField { .. } => Some(ShapeType::HeightField),
+            Self::Voxel { .. } => Some(ShapeType::Voxel),
             Self::Compound { .. } => Some(ShapeType::Compound),
         }
     }
@@ -782,6 +794,7 @@ unsafe fn snapshot_debug_shape(
             ShapeType::Hull => snapshot_hull_ptr(raw.__bindgen_anon_1.hull)?,
             ShapeType::Mesh => snapshot_mesh_ptr(raw.__bindgen_anon_1.mesh)?,
             ShapeType::HeightField => snapshot_height_field_ptr(raw.__bindgen_anon_1.heightField)?,
+            ShapeType::Voxel => snapshot_voxel_ptr(raw.__bindgen_anon_1.voxel)?,
             ShapeType::Compound => snapshot_compound_ptr(raw.__bindgen_anon_1.compound)?,
         }
     };
@@ -807,6 +820,7 @@ unsafe fn snapshot_child_shape(raw: ffi::b3ChildShape) -> SnapshotResult<DebugSh
             }
             ShapeType::Compound => Err("nested compound debug child is not supported by Box3D"),
             ShapeType::HeightField => Err("height-field debug child is not supported by Box3D"),
+            ShapeType::Voxel => Err("voxel debug child is not supported by Box3D"),
         }
     }
 }
@@ -1037,12 +1051,12 @@ unsafe fn snapshot_height_field(
             let index12 = index11 + 1;
             let index21 = ((row + 1) * height_field.columnCount + column) as u32;
             let index22 = index21 + 1;
-            let first = if height_field.clockwise {
+            let first = if height_field.clockwise != 0 {
                 [index11, index12, index21]
             } else {
                 [index11, index21, index12]
             };
-            let second = if height_field.clockwise {
+            let second = if height_field.clockwise != 0 {
                 [index22, index21, index12]
             } else {
                 [index22, index12, index21]
@@ -1065,6 +1079,28 @@ unsafe fn snapshot_height_field(
             triangles,
             material_count: 256,
         },
+    })
+}
+
+unsafe fn snapshot_voxel_ptr(ptr: *const ffi::b3VoxelData) -> SnapshotResult<DebugShapeGeometry> {
+    if ptr.is_null() {
+        return Err("debug voxel pointer was null");
+    }
+    let count = unsafe { ffi::b3VoxelData_GetCellCount(ptr) };
+    let voxel_size = unsafe { ffi::b3VoxelData_GetVoxelSize(ptr) };
+    if count <= 0 || !voxel_size.is_finite() || voxel_size <= 0.0 {
+        return Err("debug voxel data was invalid");
+    }
+    let mut raw_cells = vec![ffi::b3Vec3i { x: 0, y: 0, z: 0 }; count as usize];
+    let written = unsafe { ffi::b3VoxelData_GetCells(ptr, raw_cells.as_mut_ptr(), count) };
+    if written != count {
+        return Err("debug voxel cell snapshot was incomplete");
+    }
+    Ok(DebugShapeGeometry::Voxel {
+        bounds: Aabb::from_raw(unsafe { ffi::b3VoxelData_GetBounds(ptr) }),
+        origin: Vec3::from_raw(unsafe { ffi::b3VoxelData_GetOrigin(ptr) }),
+        cells: raw_cells.into_iter().map(VoxelCell::from_raw).collect(),
+        voxel_size,
     })
 }
 

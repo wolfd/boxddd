@@ -21,6 +21,7 @@ typedef enum b3ShapeFlags
 	b3_enablePreSolveEvents = 0x10,
 	b3_enlargedAABB = 0x20,
 	b3_enableSpeculative = 0x40,
+	b3_boxHull = 0x80,
 } b3ShapeFlags;
 
 typedef struct b3Shape
@@ -62,6 +63,7 @@ typedef struct b3Shape
 		b3Mesh mesh;
 		const b3HeightFieldData* heightField;
 		const b3CompoundData* compound;
+		const b3VoxelData* voxel;
 	};
 
 } b3Shape;
@@ -152,4 +154,9 @@ static inline bool b3ShouldQueryCollide( const b3Filter* shapeFilter, const b3Qu
 {
 	return ( shapeFilter->categoryBits & queryFilter->maskBits ) != 0 &&
 		   ( shapeFilter->maskBits & queryFilter->categoryBits ) != 0;
+}
+
+static inline bool b3IsConvex( b3ShapeType type )
+{
+	return type == b3_sphereShape || type == b3_capsuleShape || type == b3_hullShape;
 }

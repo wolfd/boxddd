@@ -304,6 +304,27 @@ fn draw_debug_shape_geometry(
         boxddd::DebugShapeGeometry::HeightField { mesh } => {
             draw_debug_mesh(gizmos, mesh, origin, rotation, bevy_math::Vec3::ONE, color);
         }
+        boxddd::DebugShapeGeometry::Voxel {
+            origin: voxel_origin,
+            cells,
+            voxel_size,
+            ..
+        } => {
+            for cell in cells {
+                let local_center = bevy_math::Vec3::new(
+                    cell.x as f32 * voxel_size,
+                    cell.y as f32 * voxel_size,
+                    cell.z as f32 * voxel_size,
+                ) + to_bevy_vec3(*voxel_origin);
+                let center = origin + rotation * local_center;
+                gizmos.cube(
+                    bevy_transform::components::Transform::from_translation(center)
+                        .with_rotation(rotation)
+                        .with_scale(bevy_math::Vec3::splat(*voxel_size)),
+                    color,
+                );
+            }
+        }
         boxddd::DebugShapeGeometry::Compound { children } => {
             for child in children {
                 let child_origin = transform_local_point(origin, rotation, child.transform.p);

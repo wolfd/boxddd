@@ -168,7 +168,7 @@ void b3AddContactToGraph( b3World* world, b3Contact* contact )
 	}
 }
 
-void b3RemoveContactFromGraph( b3World* world, int bodyIdA, int bodyIdB, int colorIndex, int localIndex, bool meshContact )
+void b3RemoveContactFromGraph( b3World* world, int bodyIdA, int bodyIdB, int colorIndex, int localIndex, bool scalarContact )
 {
 	b3ConstraintGraph* graph = &world->constraintGraph;
 
@@ -182,7 +182,7 @@ void b3RemoveContactFromGraph( b3World* world, int bodyIdA, int bodyIdB, int col
 		b3ClearBit( &color->bodySet, bodyIdB );
 	}
 
-	if ( meshContact || colorIndex == B3_OVERFLOW_INDEX )
+	if ( scalarContact || colorIndex == B3_OVERFLOW_INDEX )
 	{
 		int movedIndex = b3Array_RemoveSwap( color->contacts, localIndex );
 		if ( movedIndex != B3_NULL_INDEX )
@@ -210,6 +210,61 @@ void b3RemoveContactFromGraph( b3World* world, int bodyIdA, int bodyIdB, int col
 			B3_ASSERT( ( movedContact->flags & b3_simMeshContact ) == 0 );
 			movedContact->localIndex = localIndex;
 		}
+	}
+}
+
+// Collision tasks cannot mutate graph arrays concurrently. Voxel contacts use
+// the contact-state bitset to arrive here serially when their manifold count
+// crosses the wide/scalar boundary. The graph color and its body ownership do
+// not change; only the storage lane changes.
+void b3ReclassifyContactInGraph( b3World* world, b3Contact* contact, bool scalar )
+{
+	B3_UNUSED( scalar );
+	B3_ASSERT( contact->setIndex == b3_awakeSet );
+	B3_ASSERT( 0 <= contact->colorIndex && contact->colorIndex < B3_OVERFLOW_INDEX );
+	B3_ASSERT( contact->flags & b3_simVoxelContact );
+	B3_ASSERT( contact->manifoldCount > 0 );
+	B3_ASSERT( scalar == ( contact->manifoldCount != 1 ) );
+
+	b3GraphColor* color = world->constraintGraph.colors + contact->colorIndex;
+	int localIndex = contact->localIndex;
+	bool wasScalar = ( contact->flags & b3_simMeshContact ) != 0;
+	B3_ASSERT( wasScalar != scalar );
+
+	if ( wasScalar )
+	{
+		int movedIndex = b3Array_RemoveSwap( color->contacts, localIndex );
+		if ( movedIndex != B3_NULL_INDEX )
+		{
+			int movedContactId = color->contacts.data[localIndex].contactId;
+			b3Contact* movedContact = b3Array_Get( world->contacts, movedContactId );
+			B3_ASSERT( movedContact->localIndex == movedIndex );
+			movedContact->localIndex = localIndex;
+		}
+
+		contact->localIndex = color->convexContacts.count;
+		b3Array_Push( color->convexContacts, contact->contactId );
+		contact->flags &= ~b3_simMeshContact;
+	}
+	else
+	{
+		int movedIndex = b3Array_RemoveSwap( color->convexContacts, localIndex );
+		if ( movedIndex != B3_NULL_INDEX )
+		{
+			int movedContactId = color->convexContacts.data[localIndex];
+			b3Contact* movedContact = b3Array_Get( world->contacts, movedContactId );
+			B3_ASSERT( movedContact->localIndex == movedIndex );
+			movedContact->localIndex = localIndex;
+		}
+
+		b3ContactSpec spec = {
+			.contactId = contact->contactId,
+			.manifoldStart = 0,
+			.manifoldCount = (uint16_t)contact->manifoldCount,
+		};
+		contact->localIndex = color->contacts.count;
+		b3Array_Push( color->contacts, spec );
+		contact->flags |= b3_simMeshContact;
 	}
 }
 

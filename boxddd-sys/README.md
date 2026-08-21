@@ -120,3 +120,5 @@ BOXDDD_SYS_SKIP_CC=1 cargo check -p boxddd-sys
 ## License
 
 This crate is licensed as MIT OR Apache-2.0. Vendored Box3D is MIT-licensed.
+The added voxel collider's source and design references are documented in
+[`VOXEL_COLLIDER_PROVENANCE.md`](third-party/box3d/VOXEL_COLLIDER_PROVENANCE.md).

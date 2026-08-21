@@ -9,6 +9,9 @@ pub use math::*;
 mod contact;
 pub use contact::*;
 
+mod sleep;
+pub use sleep::*;
+
 mod stats;
 pub use stats::*;
 

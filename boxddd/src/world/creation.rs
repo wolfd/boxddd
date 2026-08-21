@@ -25,6 +25,7 @@ enum ShapeCreation<'a> {
         scale: Vec3,
     },
     HeightField,
+    Voxel,
     Compound,
 }
 
@@ -273,6 +274,31 @@ impl World {
         )
     }
 
+    /// Attaches an owned sparse voxel collider to a body.
+    ///
+    /// Voxel shapes may be static, kinematic, or dynamic. Box3D borrows the
+    /// occupancy data, so the World retains its Foundation-backed owner until
+    /// the shape is destroyed.
+    pub fn create_voxel_shape(
+        &mut self,
+        body_id: BodyId,
+        def: &ShapeDef,
+        voxel: VoxelData,
+    ) -> Result<ShapeId> {
+        callback_state::check_not_in_callback()?;
+        self.check_owner_healthy()?;
+        let prepared = def.prepare(ShapeMaterialUsage::BaseOnly)?;
+        let pending = self.state_mut().ledger.reserve_shape(body_id)?;
+        self.create_shape_from_prepared(
+            body_id,
+            prepared,
+            pending,
+            Some(ShapeResource::Voxel { _data: voxel }),
+            ExpectedShapeType::Exact(ShapeType::Voxel),
+            ShapeCreation::Voxel,
+        )
+    }
+
     /// Tries to attach a compound shape to a static body.
     pub fn create_compound_shape(
         &mut self,
@@ -356,6 +382,12 @@ impl World {
                     unreachable!("height-field creation requires height-field backing")
                 };
                 prepared.create_height_field(raw_body, height_field)
+            }
+            ShapeCreation::Voxel => {
+                let Some(ShapeResource::Voxel { _data: voxel }) = backing.resource() else {
+                    unreachable!("voxel creation requires voxel backing")
+                };
+                prepared.create_voxel(raw_body, voxel)
             }
             ShapeCreation::Compound => {
                 let Some(ShapeResource::Compound { _data: compound }) = backing.resource() else {

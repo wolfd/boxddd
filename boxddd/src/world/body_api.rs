@@ -934,6 +934,51 @@ impl World {
             Ok(unsafe { ContactData::from_raw_parts(raw, contact_id, shape_id_a, shape_id_b) })
         })
     }
+
+    /// Refills `buffer` with the body's current contact data.
+    ///
+    /// The native staging, contact headers, and flat manifold storage are
+    /// reused after their capacities have warmed up.
+    pub fn body_contacts_buffered(
+        &self,
+        body_id: BodyId,
+        buffer: &mut ContactBuffer,
+    ) -> Result<()> {
+        let _call = self.enter_body_call(body_id)?;
+        let capacity =
+            unsafe { ffi::b3Body_GetContactCapacity(body_id.into_raw()) }.max(0) as usize;
+        unsafe {
+            ffi_vec::fill_from_ffi(&mut buffer.raw, capacity, |ptr, cap| {
+                ffi::b3Body_GetContactData(body_id.into_raw(), ptr, cap)
+            });
+            buffer.convert_raw(|raw| {
+                Ok((
+                    self.state().ledger.resolve_contact(raw.contactId)?,
+                    self.state().ledger.resolve_shape(raw.shapeIdA)?,
+                    self.state().ledger.resolve_shape(raw.shapeIdB)?,
+                ))
+            })
+        }
+    }
+
+    /// Refills `buffer` with every current touching contact in the World,
+    /// visiting each native pair once.
+    pub fn world_contacts_buffered(&self, buffer: &mut ContactBuffer) -> Result<()> {
+        let _call = self.enter_world_call()?;
+        let capacity = unsafe { ffi::b3World_GetContactCapacity(self.raw()) }.max(0) as usize;
+        unsafe {
+            ffi_vec::fill_from_ffi(&mut buffer.raw, capacity, |ptr, cap| {
+                ffi::b3World_GetContactData(self.raw(), ptr, cap)
+            });
+            buffer.convert_raw(|raw| {
+                Ok((
+                    self.state().ledger.resolve_contact(raw.contactId)?,
+                    self.state().ledger.resolve_shape(raw.shapeIdA)?,
+                    self.state().ledger.resolve_shape(raw.shapeIdB)?,
+                ))
+            })
+        }
+    }
 }
 
 #[inline]

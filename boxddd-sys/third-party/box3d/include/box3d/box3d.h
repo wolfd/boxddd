@@ -8,6 +8,7 @@
 #include "id.h"
 #include "math_functions.h"
 #include "types.h"
+#include "voxel.h"
 
 #include <stdbool.h>
 
@@ -67,6 +68,24 @@ B3_API b3SensorEvents b3World_GetSensorEvents( b3WorldId worldId );
 
 /// Get contact events for this current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3ContactEvents b3World_GetContactEvents( b3WorldId worldId );
+
+/// Get a conservative capacity for all current touching contacts in the world.
+B3_API int b3World_GetContactCapacity( b3WorldId worldId );
+
+/// Copy all current touching contacts in the world, visiting each pair once.
+B3_API int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int capacity );
+
+/// Get a conservative capacity for the per-body sleep data in the world.
+B3_API int b3World_GetBodySleepCapacity( b3WorldId worldId );
+
+/// Copy the current sleep state of every enabled body. Read-only observation data.
+B3_API int b3World_GetBodySleepData( b3WorldId worldId, b3BodySleepData* sleepData, int capacity );
+
+/// Get a conservative capacity for the island census data in the world.
+B3_API int b3World_GetIslandCensusCapacity( b3WorldId worldId );
+
+/// Copy a sleep census of every island (awake or sleeping). Read-only observation data.
+B3_API int b3World_GetIslandCensusData( b3WorldId worldId, b3IslandCensus* censusData, int capacity );
 
 /// Get the joint events for the current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3JointEvents b3World_GetJointEvents( b3WorldId worldId );
@@ -251,6 +270,36 @@ B3_API void b3World_EnableSpeculative( b3WorldId worldId, bool flag );
  * @{
  */
 
+/**
+ * @defgroup savestate Save state
+ * Standalone world save/restore, independent of the recording/replay system.
+ *
+ * These wrap the same serializer the replay player uses for its keyframes, so a
+ * restored world reproduces the original bit-for-bit — including the contact
+ * manifolds and their warm-start impulses, the sleep timers, the island and
+ * constraint-graph structure, and the broadphase, none of which can be rebuilt
+ * from body transforms alone.
+ *
+ * The blob is self-contained: it carries the interned shape geometry alongside
+ * the world image, so a save and its load need share no other state.
+ * @{
+ */
+
+/// Serialize `worldId` into a freshly allocated buffer. Returns NULL on failure.
+/// The caller owns the result and must release it with b3FreeSaveState.
+/// `size` receives the byte count.
+B3_API uint8_t* b3World_SaveState( b3WorldId worldId, int* size );
+
+/// Release a buffer returned by b3World_SaveState.
+B3_API void b3FreeSaveState( uint8_t* data, int size );
+
+/// Overwrite `worldId` with the state in `[data, size)`. The target must be a
+/// world created with the same definition (a "shell"); its existing contents are
+/// discarded. Returns false on a corrupt or incompatible image.
+B3_API bool b3World_LoadState( b3WorldId worldId, const uint8_t* data, int size );
+
+/** @} */
+
 /// Opaque recording handle. Create with b3CreateRecording, destroy with b3DestroyRecording.
 typedef struct b3Recording b3Recording;
 
@@ -323,10 +372,10 @@ typedef struct b3RecPlayerInfo
 /// Replaying at a different count re-partitions the constraint graph, so the StateHash check
 /// becomes a cross-thread determinism test. Adjustable later with b3RecPlayer_SetWorkerCount.
 /// @return a new player, or NULL on bad header or deserialization failure
-B3_API b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount );
+B3_API b3RecPlayer* b3CreatePlayer( const void* data, int size, int workerCount );
 
 /// Destroy the player and free all memory. Restores the previous global length scale.
-B3_API void b3RecPlayer_Destroy( b3RecPlayer* player );
+B3_API void b3DestroyPlayer( b3RecPlayer* player );
 
 /// Advance one frame. dispatch ops until the next Step completes.
 /// @return true when a frame was stepped, false at end-of-recording
@@ -406,7 +455,7 @@ B3_API b3BodyId b3RecPlayer_GetBodyId( const b3RecPlayer* player, int index );
 /// Wire host debug-shape callbacks into the player's replay world so a renderer can build
 /// per-shape draw resources (the 3D sample needs this or the replay world draws nothing).
 /// Rebuilds the current world under the new callbacks and rewinds to frame 0, so call it
-/// once right after b3RecPlayer_Create and re-read the world id afterward. The callbacks
+/// once right after b3CreatePlayer and re-read the world id afterward. The callbacks
 /// persist across Restart and backward seeks, which recreate the world internally.
 /// @param player the player to configure
 /// @param createDebugShape called when a replayed shape is added; returns a user draw handle
@@ -828,6 +877,12 @@ B3_API b3ShapeId b3CreateMeshShape( b3BodyId bodyId, const b3ShapeDef* def, cons
 /// @return the shape id for accessing the shape
 B3_API b3ShapeId b3CreateHeightFieldShape( b3BodyId bodyId, const b3ShapeDef* def, const b3HeightFieldData* heightField );
 
+/// Create a sparse voxel-grid shape and attach it to a body. The shape definition is fully cloned but the voxel data is not.
+/// Contacts are not created until the next time step.
+/// @warning this holds a reference to the input voxel data which must remain valid for the lifetime of this shape
+/// @return the shape id for accessing the shape
+B3_API b3ShapeId b3CreateVoxelShape( b3BodyId bodyId, const b3ShapeDef* def, const b3VoxelData* voxels );
+
 /// Baked compound shapes are only allowed on static bodies.
 /// Note: runtime compounds are achieved by adding multiple shapes to a body.
 /// Runtime compounds can be dynamic and/or kinematic.
@@ -959,6 +1014,9 @@ B3_API b3Mesh b3Shape_GetMesh( b3ShapeId shapeId );
 /// Get the shape's height field. Asserts the type is correct.
 B3_API const b3HeightFieldData* b3Shape_GetHeightField( b3ShapeId shapeId );
 
+/// Get the shape's sparse voxel data. Asserts the type is correct.
+B3_API const b3VoxelData* b3Shape_GetVoxel( b3ShapeId shapeId );
+
 /// Allows you to change a shape to be a sphere or update the current sphere.
 /// This does not modify the mass properties.
 /// @see b3Body_ApplyMassFromShapes
@@ -1005,6 +1063,12 @@ B3_API int b3Shape_GetSensorData( b3ShapeId shapeId, b3ShapeId* visitorIds, int 
 
 /// Get the current world AABB
 B3_API b3AABB b3Shape_GetAABB( b3ShapeId shapeId );
+
+/// Get the enlarged (fat) world AABB the broad-phase proxy is stored with.
+/// This always contains b3Shape_GetAABB and is the bound the broad-phase tree
+/// tests overlap queries against, so a query that reports this shape can be
+/// re-tested against a narrower AABB without consulting the tree again.
+B3_API b3AABB b3Shape_GetFatAABB( b3ShapeId shapeId );
 
 /// Compute the mass data for a shape
 B3_API b3MassData b3Shape_ComputeMassData( b3ShapeId shapeId );

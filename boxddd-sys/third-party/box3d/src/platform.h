@@ -102,3 +102,29 @@ static inline uint32_t b3AtomicLoadU32( b3AtomicU32* a )
 #error "Unsupported platform"
 #endif
 }
+
+// FORK: bit-set/bit-clear for the solver worker park mask (solver.c).
+// Sequentially consistent, like every other atomic here — the park handshake is a
+// Dekker pair (set bit, then re-read the sync bits / publish sync bits, then read
+// the mask) and relaxing either side reintroduces the lost-wakeup it rules out.
+static inline uint32_t b3AtomicFetchOrU32( b3AtomicU32* a, uint32_t value )
+{
+#if defined( _MSC_VER )
+	return (uint32_t)_InterlockedOr( (long*)&a->value, (long)value );
+#elif defined( __GNUC__ ) || defined( __clang__ )
+	return __atomic_fetch_or( &a->value, value, __ATOMIC_SEQ_CST );
+#else
+#error "Unsupported platform"
+#endif
+}
+
+static inline uint32_t b3AtomicFetchAndU32( b3AtomicU32* a, uint32_t value )
+{
+#if defined( _MSC_VER )
+	return (uint32_t)_InterlockedAnd( (long*)&a->value, (long)value );
+#elif defined( __GNUC__ ) || defined( __clang__ )
+	return __atomic_fetch_and( &a->value, value, __ATOMIC_SEQ_CST );
+#else
+#error "Unsupported platform"
+#endif
+}

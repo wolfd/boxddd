@@ -6,6 +6,8 @@
 #include "core.h"
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 #if defined( B3_SIMD_NEON )
 
@@ -24,7 +26,6 @@ typedef __m128 b3FloatW;
 #else
 
 #include <math.h>
-#include <string.h>
 
 // scalar math
 typedef struct b3FloatW
@@ -86,9 +87,12 @@ static inline b3V32 b3NegV( b3V32 a )
 
 static inline b3V32 b3LoadV( const float* src )
 {
-	// Loads exactly 12 bytes: 8 via movsd, 4 via movss.
-	// Result lane 3 is implicitly zero from the partial loads.
-	__m128 xy = _mm_castpd_ps( _mm_load_sd( (const double*)( src ) ) );
+	// Load the first two floats without imposing double alignment or violating
+	// the effective type of the source. Compilers lower this fixed-size copy to
+	// the same unaligned 64-bit move used by the old double-pointer cast.
+	int64_t xyBits;
+	memcpy( &xyBits, src, sizeof( xyBits ) );
+	__m128 xy = _mm_castsi128_ps( _mm_cvtsi64_si128( xyBits ) );
 	__m128 z = _mm_load_ss( src + 2 );
 	return _mm_movelh_ps( xy, z ); // { src[0], src[1], src[2], 0.0f }
 }

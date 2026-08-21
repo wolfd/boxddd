@@ -58,6 +58,15 @@ b3World_GetAwakeBodyCount|safe|world|box3d.h|covered by current safe wrapper imp
 b3World_GetProfile|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetCounters|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetMaxCapacity|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetContactCapacity|safe|world|box3d.h|World::contacts and World::contacts_buffered expose owned and reusable contact snapshots
+b3World_GetContactData|safe|world|box3d.h|World::contacts and World::contacts_buffered validate native counts and initialize owned contact data
+b3World_GetBodySleepCapacity|safe|world|box3d.h|World::body_sleep_data exposes owned sleep-state snapshots
+b3World_GetBodySleepData|safe|world|box3d.h|World::body_sleep_data validates native counts and initializes owned sleep-state data
+b3World_GetIslandCensusCapacity|safe|world|box3d.h|World::island_census exposes owned island snapshots
+b3World_GetIslandCensusData|safe|world|box3d.h|World::island_census validates native counts and initializes owned island data
+b3World_SaveState|safe|world|box3d.h|World::save_state copies native state into an owned byte buffer
+b3World_LoadState|safe|world|box3d.h|World::load_state validates bytes through Box3D and rebuilds the owner provenance ledger
+b3FreeSaveState|safe|world|box3d.h|World::save_state immediately transfers and frees the native byte allocation
 b3World_SetUserData|raw|world|box3d.h|explicit unsafe boxddd::raw user-data boundary
 b3World_GetUserData|raw|world|box3d.h|explicit unsafe boxddd::raw user-data boundary
 b3World_SetFrictionCallback|safe|world|box3d.h|covered by current safe wrapper implementation
@@ -69,6 +78,8 @@ b3World_DumpShapeBounds|raw|world|box3d.h|native diagnostic dump has no stable R
 b3World_RebuildStaticTree|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_EnableSpeculative|safe|world|box3d.h|covered by current safe wrapper implementation
 b3CreateRecording|safe|recording|box3d.h|covered by current safe wrapper implementation
+b3CreatePlayer|safe|recording|box3d.h|RecPlayer creation owns replay bytes and validates Foundation-exclusive replay activity
+b3DestroyPlayer|safe|recording|box3d.h|RecPlayer destruction is covered by its Foundation-tracked owner
 b3DestroyRecording|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3Recording_GetData|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3Recording_GetSize|safe|recording|box3d.h|covered by current safe wrapper implementation
@@ -77,8 +88,6 @@ b3World_StopRecording|safe|world|box3d.h|covered by current safe wrapper impleme
 b3SaveRecordingToFile|raw|recording|box3d.h|native save helper remains raw; Recording::save_to_file writes safe bytes through Rust IO
 b3LoadRecordingFromFile|safe|recording|box3d.h|Recording::load_from_file returns an owned Recording with path conversion and error mapping
 b3ValidateReplay|safe|recording|box3d.h|covered by current safe wrapper implementation
-b3RecPlayer_Create|safe|recording|box3d.h|covered by current safe wrapper implementation
-b3RecPlayer_Destroy|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3RecPlayer_StepFrame|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3RecPlayer_SubStepFrame|safe|recording|box3d.h|covered by current safe wrapper implementation
 b3RecPlayer_Restart|safe|recording|box3d.h|covered by current safe wrapper implementation
@@ -187,6 +196,7 @@ b3CreateTransformedHullShape|safe|shape|box3d.h|covered by current safe wrapper 
 b3CreateMeshShape|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3CreateHeightFieldShape|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3CreateBakedCompoundShape|safe|shape|box3d.h|covered by current safe wrapper implementation
+b3CreateVoxelShape|safe|shape|box3d.h|World::create_voxel_shape validates ownership and retains its VoxelData resource
 b3DestroyShape|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_IsValid|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetType|safe|shape|box3d.h|covered by current safe wrapper implementation
@@ -222,6 +232,7 @@ b3Shape_RayCast|safe|shape|box3d.h|covered by current safe wrapper implementatio
 b3Shape_GetSphere|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetCapsule|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetHull|safe|shape|box3d.h|covered by current safe wrapper implementation
+b3Shape_GetVoxel|safe|shape|box3d.h|World::shape_voxel returns a Foundation-scoped borrowed voxel view
 b3Shape_GetMesh|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetHeightField|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_SetSphere|safe|shape|box3d.h|covered by current safe wrapper implementation
@@ -233,6 +244,7 @@ b3Shape_GetContactData|safe|shape|box3d.h|covered by current safe wrapper implem
 b3Shape_GetSensorCapacity|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetSensorData|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetAABB|safe|shape|box3d.h|covered by current safe wrapper implementation
+b3Shape_GetFatAABB|safe|shape|box3d.h|World::shape_fat_aabb exposes the broad-phase bound with provenance validation
 b3Shape_ComputeMassData|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_GetClosestPoint|safe|shape|box3d.h|covered by current safe wrapper implementation
 b3Shape_ApplyWind|safe|shape|box3d.h|covered by current safe wrapper implementation
@@ -460,6 +472,15 @@ b3CreateCylinder|safe|geometry_resources|collision.h|covered by current safe wra
 b3CreateCone|safe|geometry_resources|collision.h|covered by current safe wrapper implementation
 b3CreateRock|safe|geometry_resources|collision.h|covered by current safe wrapper implementation
 b3CreateHull|safe|geometry_resources|collision.h|covered by current safe wrapper implementation
+b3CreateVoxelData|safe|geometry_resources|voxel.h|VoxelData::new validates and owns canonical voxel geometry
+b3CreateOffsetVoxelData|safe|geometry_resources|voxel.h|VoxelData::new_with_origin validates and owns offset voxel geometry
+b3DestroyVoxelData|safe|geometry_resources|voxel.h|VoxelData destruction is covered by its Foundation-tracked owner
+b3VoxelData_GetCellCount|safe|geometry_resources|voxel.h|VoxelData and ShapeVoxel expose validated cell counts
+b3VoxelData_GetCells|safe|geometry_resources|voxel.h|VoxelData and ShapeVoxel return initialized owned cell vectors
+b3VoxelData_GetVoxelSize|safe|geometry_resources|voxel.h|VoxelData and ShapeVoxel expose finite validated voxel size
+b3VoxelData_GetOrigin|safe|geometry_resources|voxel.h|VoxelData and ShapeVoxel expose the grid origin as Vec3
+b3VoxelData_GetBounds|safe|geometry_resources|voxel.h|VoxelData and ShapeVoxel expose bounds as Aabb
+b3VoxelData_IsSolid|safe|geometry_resources|voxel.h|VoxelData and ShapeVoxel expose integer occupancy queries
 b3CloneHull|safe|geometry_resources|collision.h|Hull::try_clone returns an owned RAII Hull
 b3CloneAndTransformHull|safe|geometry_resources|collision.h|Hull::clone_transformed returns an owned RAII Hull after validation
 b3DestroyHull|safe|geometry_resources|collision.h|covered by current safe wrapper implementation
@@ -536,6 +557,7 @@ b3CollideHullAndSphere|safe|collision|collision.h|covered by current safe wrappe
 b3CollideCapsules|safe|collision|collision.h|covered by current safe wrapper implementation
 b3CollideHullAndCapsule|safe|collision|collision.h|covered by current safe wrapper implementation
 b3CollideHulls|safe|collision|collision.h|covered by current safe wrapper implementation
+b3CollideVoxelAndHull|safe|collision|collision.h|collide_shape_voxel_and_box validates live shape ownership and returns a fixed-capacity manifold
 b3CollideTriangleAndCapsule|safe|collision|collision.h|covered by current safe wrapper implementation
 b3CollideTriangleAndHull|safe|collision|collision.h|covered by current safe wrapper implementation
 b3CollideTriangleAndSphere|safe|collision|collision.h|covered by current safe wrapper implementation

@@ -5,7 +5,10 @@ use crate::core::{callback_state, validation};
 #[cfg(test)]
 use crate::error::Error;
 use crate::error::{InvalidValueReason, Result};
-use crate::shapes::{Capsule, Compound, HeightField, Hull, MeshData, Sphere, validate_mesh_scale};
+use crate::shapes::{
+    BoxHull, Capsule, Compound, HeightField, Hull, MeshData, ShapeHull, ShapeVoxel, Sphere,
+    validate_mesh_scale,
+};
 use crate::types::{Aabb, MassData, Plane, Quat, Transform, Vec3};
 use boxddd_sys::ffi;
 use std::mem::MaybeUninit;
@@ -721,6 +724,46 @@ pub struct LocalManifold {
     pub points: Vec<LocalManifoldPoint>,
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+/// Allocation-free local manifold returned by live-shape narrow-phase helpers.
+pub struct FixedLocalManifold {
+    /// Manifold normal.
+    pub normal: Vec3,
+    /// Triangle normal, when present.
+    pub triangle_normal: Vec3,
+    points: [LocalManifoldPoint; MAX_LOCAL_MANIFOLD_POINTS],
+    point_count: u8,
+}
+
+impl FixedLocalManifold {
+    /// Returns the initialized contact points.
+    #[inline]
+    pub fn points(&self) -> &[LocalManifoldPoint] {
+        &self.points[..self.point_count as usize]
+    }
+
+    unsafe fn from_raw(
+        raw: ffi::b3LocalManifold,
+        points: &[ffi::b3LocalManifoldPoint; MAX_LOCAL_MANIFOLD_POINTS],
+    ) -> Self {
+        let point_count = raw.pointCount.clamp(0, MAX_LOCAL_MANIFOLD_POINTS as i32) as usize;
+        let mut converted = [LocalManifoldPoint::default(); MAX_LOCAL_MANIFOLD_POINTS];
+        for (out, point) in converted.iter_mut().zip(&points[..point_count]) {
+            *out = LocalManifoldPoint {
+                point: Vec3::from_raw(point.point),
+                separation: point.separation,
+                triangle_index: point.triangleIndex,
+            };
+        }
+        Self {
+            normal: Vec3::from_raw(raw.normal),
+            triangle_normal: Vec3::from_raw(raw.triangleNormal),
+            points: converted,
+            point_count: point_count as u8,
+        }
+    }
+}
+
 impl LocalManifold {
     unsafe fn from_raw(raw: ffi::b3LocalManifold, points: &[ffi::b3LocalManifoldPoint]) -> Self {
         Self {
@@ -1286,6 +1329,52 @@ pub fn collide_hulls(
     })
 }
 
+/// Computes a local manifold between hull geometry borrowed from a live shape
+/// and a standalone box hull.
+///
+/// The returned normal points from `shape_a` toward `box_b`. The borrowed
+/// shape keeps its owning world alive for the duration of this pure
+/// narrow-phase query.
+pub fn collide_shape_hull_and_box(
+    shape_a: &ShapeHull<'_>,
+    box_b: &BoxHull,
+    transform_b_to_a: Transform,
+) -> Result<FixedLocalManifold> {
+    callback_state::check_not_in_callback()?;
+    let mut cache: ffi::b3SATCache = unsafe { std::mem::zeroed() };
+    collide_fixed(transform_b_to_a, |manifold, capacity| unsafe {
+        ffi::b3CollideHulls(
+            manifold,
+            capacity,
+            shape_a.raw_ptr(),
+            box_b.hull_data(),
+            transform_b_to_a.into_raw(),
+            &mut cache,
+        )
+    })
+}
+
+/// Computes a local manifold between voxel geometry borrowed from a live
+/// shape and a standalone box hull.
+///
+/// The returned normal points from `voxel_a` toward `box_b`.
+pub fn collide_shape_voxel_and_box(
+    voxel_a: &ShapeVoxel<'_>,
+    box_b: &BoxHull,
+    transform_b_to_a: Transform,
+) -> Result<FixedLocalManifold> {
+    callback_state::check_not_in_callback()?;
+    collide_fixed(transform_b_to_a, |manifold, capacity| unsafe {
+        ffi::b3CollideVoxelAndHull(
+            manifold,
+            capacity,
+            voxel_a.raw_ptr(),
+            box_b.hull_data(),
+            transform_b_to_a.into_raw(),
+        )
+    })
+}
+
 /// Computes a local manifold for a triangle and a capsule.
 ///
 /// The returned normal points from the triangle toward the capsule.
@@ -1409,6 +1498,20 @@ fn collide(
     let count = raw.pointCount.clamp(0, ffi::B3_MAX_MANIFOLD_POINTS as i32) as usize;
     let initialized = unsafe { std::slice::from_raw_parts(points.as_ptr().cast(), count) };
     Ok(unsafe { LocalManifold::from_raw(raw, initialized) })
+}
+
+fn collide_fixed(
+    transform_b_to_a: Transform,
+    f: impl FnOnce(*mut ffi::b3LocalManifold, i32),
+) -> Result<FixedLocalManifold> {
+    transform_b_to_a.validate()?;
+    let _call = Foundation::enter_transient_call()?;
+    let mut points: [ffi::b3LocalManifoldPoint; MAX_LOCAL_MANIFOLD_POINTS] =
+        unsafe { std::mem::zeroed() };
+    let mut raw: ffi::b3LocalManifold = unsafe { std::mem::zeroed() };
+    raw.points = points.as_mut_ptr();
+    f(&mut raw, ffi::B3_MAX_MANIFOLD_POINTS as i32);
+    Ok(unsafe { FixedLocalManifold::from_raw(raw, &points) })
 }
 
 fn validate_density(context: &'static str, density: f32) -> Result<()> {

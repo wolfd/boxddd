@@ -11,12 +11,13 @@ use crate::events::EventScratch;
 use crate::recording::RecordingActivity;
 use crate::shapes::{
     BoxHull, Capsule, Compound, HeightField, Hull, MeshData, PreparedShapeDef, ShapeDef,
-    ShapeHeightField, ShapeHull, ShapeMaterialUsage, ShapeMesh, ShapeType, Sphere, SurfaceMaterial,
-    validate_mesh_scale,
+    ShapeHeightField, ShapeHull, ShapeMaterialUsage, ShapeMesh, ShapeType, ShapeVoxel, Sphere,
+    SurfaceMaterial, VoxelData, validate_mesh_scale,
 };
 use crate::types::{
-    Aabb, BodyId, Capacity, ContactData, ContactId, Counters, Filter, JointId, MassData, Matrix3,
-    MotionLocks, Pos, Profile, Quat, ShapeId, Vec3, Version, WorldTransform,
+    Aabb, BodyId, BodySnapshotId, Capacity, ContactBuffer, ContactData, ContactId, Counters,
+    Filter, JointId, JointSnapshotId, MassData, Matrix3, MotionLocks, Pos, Profile, Quat, ShapeId,
+    ShapeSnapshotId, Vec3, Version, WorldTransform,
 };
 use boxddd_sys::ffi;
 use std::cell::Cell;
@@ -439,6 +440,7 @@ pub(crate) enum ShapeResource {
     Mesh { _data: MeshData },
     HeightField { _data: HeightField },
     Compound { _data: Compound },
+    Voxel { _data: VoxelData },
 }
 
 mod body_api;
@@ -448,6 +450,7 @@ pub(crate) mod ledger;
 mod lifecycle;
 mod runtime;
 mod shape_api;
+mod sleep_api;
 
 use ledger::WorldLedger;
 
@@ -533,6 +536,67 @@ impl World {
         let _call = self.enter_call()?;
         self.check_world_valid()?;
         Ok(unsafe { ffi::b3Contact_IsValid(raw) })
+    }
+
+    /// Converts a live body handle into an owner-independent snapshot key.
+    pub fn body_snapshot_id(&self, body_id: BodyId) -> Result<BodySnapshotId> {
+        callback_state::check_not_in_callback()?;
+        self.check_owner_healthy()?;
+        Ok(BodySnapshotId::from_raw(
+            self.state().ledger.authorize_body(body_id)?,
+        ))
+    }
+
+    /// Resolves a body key stored beside a world image into this world's live handle.
+    pub fn resolve_body_snapshot_id(&self, id: BodySnapshotId) -> Result<BodyId> {
+        let _call = self.enter_world_call()?;
+        self.state()
+            .ledger
+            .resolve_body(id.into_raw(self.world0()?))
+    }
+
+    /// Converts a live shape handle into an owner-independent snapshot key.
+    pub fn shape_snapshot_id(&self, shape_id: ShapeId) -> Result<ShapeSnapshotId> {
+        callback_state::check_not_in_callback()?;
+        self.check_owner_healthy()?;
+        Ok(ShapeSnapshotId::from_raw(
+            self.state().ledger.authorize_shape(shape_id)?,
+        ))
+    }
+
+    /// Resolves a shape key stored beside a world image into this world's live handle.
+    pub fn resolve_shape_snapshot_id(&self, id: ShapeSnapshotId) -> Result<ShapeId> {
+        let _call = self.enter_world_call()?;
+        self.state()
+            .ledger
+            .resolve_shape(id.into_raw(self.world0()?))
+    }
+
+    /// Converts a live joint handle into an owner-independent snapshot key.
+    pub fn joint_snapshot_id(&self, joint_id: JointId) -> Result<JointSnapshotId> {
+        callback_state::check_not_in_callback()?;
+        self.check_owner_healthy()?;
+        Ok(JointSnapshotId::from_raw(
+            self.state().ledger.authorize_joint(joint_id)?,
+        ))
+    }
+
+    /// Resolves a joint key stored beside a world image into this world's live handle.
+    pub fn resolve_joint_snapshot_id(&self, id: JointSnapshotId) -> Result<JointId> {
+        let _call = self.enter_world_call()?;
+        self.state()
+            .ledger
+            .resolve_joint(id.into_raw(self.world0()?))
+    }
+
+    fn world0(&self) -> Result<u16> {
+        u16::try_from(
+            self.raw()
+                .index1
+                .checked_sub(1)
+                .ok_or(Error::NativeFailure)?,
+        )
+        .map_err(|_| Error::NativeFailure)
     }
 
     pub(crate) fn enter_call(&self) -> Result<callback_state::OwnerCallFrame> {
