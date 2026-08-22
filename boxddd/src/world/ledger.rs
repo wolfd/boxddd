@@ -4,10 +4,14 @@ use crate::error::{Error, HandleKind, Result};
 use crate::types::{BodyId, BodyKey, ContactId, ContactKey, JointId, JointKey, ShapeId, ShapeKey};
 use boxddd_sys::ffi;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
+
+// Ledger keys are fixed-width native identities rather than attacker-controlled
+// byte strings, so a fast deterministic hasher is sufficient here.
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 #[derive(Debug)]
 struct CallbackIndexState {
@@ -25,7 +29,7 @@ impl CallbackProvenanceIndex {
         Self {
             inner: Arc::new(RwLock::new(CallbackIndexState {
                 owner,
-                shapes: HashMap::new(),
+                shapes: HashMap::default(),
             })),
         }
     }
@@ -99,9 +103,9 @@ pub(crate) struct AvailableIdentity<K> {
 impl<K> Default for ResourceRegistry<K> {
     fn default() -> Self {
         Self {
-            active: HashMap::new(),
-            pending: HashMap::new(),
-            visible: HashMap::new(),
+            active: HashMap::default(),
+            pending: HashMap::default(),
+            visible: HashMap::default(),
         }
     }
 }
@@ -412,9 +416,9 @@ impl WorldLedger {
             shapes: ResourceRegistry::default(),
             joints: ResourceRegistry::default(),
             contacts: RefCell::new(ContactRegistry::default()),
-            body_relations: HashMap::new(),
-            shape_states: HashMap::new(),
-            joint_states: HashMap::new(),
+            body_relations: HashMap::default(),
+            shape_states: HashMap::default(),
+            joint_states: HashMap::default(),
             contact_epoch: ContactEpoch::INITIAL,
             visible_contact_epoch: ContactEpoch::INITIAL,
             callback_index: CallbackProvenanceIndex::new(owner),
@@ -460,7 +464,7 @@ impl WorldLedger {
         callback_index.clear();
         let mut ledger = Self::new(owner);
         ledger.callback_index = callback_index;
-        let mut body_ids = HashMap::new();
+        let mut body_ids = HashMap::default();
         body_ids
             .try_reserve(sleep_rows.len())
             .map_err(|_| Error::AllocationFailed)?;
@@ -483,7 +487,7 @@ impl WorldLedger {
 
         let counters = unsafe { ffi::b3World_GetCounters(raw_world) };
         let mut shape_count = 0usize;
-        let mut joint_raws = HashMap::<JointKey, ffi::b3JointId>::new();
+        let mut joint_raws = HashMap::<JointKey, ffi::b3JointId>::default();
         joint_raws
             .try_reserve(counters.jointCount.max(0) as usize)
             .map_err(|_| Error::AllocationFailed)?;

@@ -2129,6 +2129,7 @@ dependencies = [
  "glam 0.33.2",
  "mint",
  "nalgebra",
+ "rustc-hash 2.1.2",
  "serde",
  "serde_json",
  "static_assertions",

@@ -15,6 +15,7 @@ categories = ["game-engines"]
 [dependencies]
 boxddd-sys.workspace = true
 thiserror.workspace = true
+rustc-hash = "2.1"
 mint = { version = "0.5", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 nalgebra = { version = "0.35", default-features = false, features = ["std"], optional = true }
