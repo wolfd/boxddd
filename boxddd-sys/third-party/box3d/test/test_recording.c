@@ -5,12 +5,12 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "box3d/box3d.h"
-#include "box3d/collision.h"
-#include "test_macros.h"
-
 #include "physics_world.h"
 #include "recording.h"
+#include "test_macros.h"
+
+#include "box3d/box3d.h"
+#include "box3d/collision.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -25,7 +25,7 @@ static int SphereRoundTrip( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_StartRecording( worldId, rec );
 
@@ -34,28 +34,28 @@ static int SphereRoundTrip( void )
 
 	// Static ground
 	b3BodyDef groundDef = b3DefaultBodyDef();
-	groundDef.type      = b3_staticBody;
-	b3BodyId groundId   = b3CreateBody( worldId, &groundDef );
+	groundDef.type = b3_staticBody;
+	b3BodyId groundId = b3CreateBody( worldId, &groundDef );
 
-	b3BoxHull groundBox  = b3MakeBoxHull( 50.0f, 1.0f, 50.0f );
+	b3BoxHull groundBox = b3MakeBoxHull( 50.0f, 1.0f, 50.0f );
 	b3ShapeDef groundShapeDef = b3DefaultShapeDef();
 	b3CreateHullShape( groundId, &groundShapeDef, &groundBox.base );
 
 	// Dynamic body with a sphere shape
 	b3BodyDef bodyDef = b3DefaultBodyDef();
-	bodyDef.type      = b3_dynamicBody;
-	bodyDef.position  = (b3Pos){ 0.0f, 5.0f, 0.0f };
-	b3BodyId bodyId   = b3CreateBody( worldId, &bodyDef );
+	bodyDef.type = b3_dynamicBody;
+	bodyDef.position = (b3Pos){ 0.0f, 5.0f, 0.0f };
+	b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 
 	b3Sphere sphere;
 	sphere.center = (b3Vec3){ 0.0f, 0.0f, 0.0f };
 	sphere.radius = 0.5f;
-	b3ShapeDef sphereDef  = b3DefaultShapeDef();
-	sphereDef.density     = 1.0f;
+	b3ShapeDef sphereDef = b3DefaultShapeDef();
+	sphereDef.density = 1.0f;
 	b3CreateSphereShape( bodyId, &sphereDef, &sphere );
 
-	float timeStep    = 1.0f / 60.0f;
-	int   subStepCount = 4;
+	float timeStep = 1.0f / 60.0f;
+	int subStepCount = 4;
 	for ( int i = 0; i < 30; ++i )
 	{
 		b3World_Step( worldId, timeStep, subStepCount );
@@ -75,10 +75,8 @@ static int HullDedup( void )
 {
 	// Build a small convex hull
 	b3Vec3 pts[8] = {
-		{ -1.0f, -1.0f, -1.0f }, {  1.0f, -1.0f, -1.0f },
-		{  1.0f,  1.0f, -1.0f }, { -1.0f,  1.0f, -1.0f },
-		{ -1.0f, -1.0f,  1.0f }, {  1.0f, -1.0f,  1.0f },
-		{  1.0f,  1.0f,  1.0f }, { -1.0f,  1.0f,  1.0f },
+		{ -1.0f, -1.0f, -1.0f }, { 1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, -1.0f }, { -1.0f, 1.0f, -1.0f },
+		{ -1.0f, -1.0f, 1.0f },	 { 1.0f, -1.0f, 1.0f },	 { 1.0f, 1.0f, 1.0f },	{ -1.0f, 1.0f, 1.0f },
 	};
 	b3HullData* hull = b3CreateHull( pts, 8, 8 );
 	ENSURE( hull != NULL );
@@ -87,19 +85,19 @@ static int HullDedup( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_StartRecording( worldId, rec );
 
 	b3ShapeDef shapeDef = b3DefaultShapeDef();
-	shapeDef.density    = 1.0f;
+	shapeDef.density = 1.0f;
 
 	for ( int i = 0; i < 3; ++i )
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type      = b3_dynamicBody;
-		bodyDef.position  = (b3Pos){ (float)( i * 3 ), 5.0f, 0.0f };
-		b3BodyId bodyId   = b3CreateBody( worldId, &bodyDef );
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ (float)( i * 3 ), 5.0f, 0.0f };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3CreateHullShape( bodyId, &shapeDef, hull );
 	}
 
@@ -119,7 +117,7 @@ static int HullDedup( void )
 	// Confirm the registry was deduped to 1 hull entry.
 	// Parse registryOffset from the header and count entries.
 	const uint8_t* bytes = b3Recording_GetData( rec );
-	int            sz    = b3Recording_GetSize( rec );
+	int sz = b3Recording_GetSize( rec );
 	ENSURE( sz >= 48 );
 
 	uint64_t regOff = 0;
@@ -127,9 +125,8 @@ static int HullDedup( void )
 	ENSURE( regOff != 0 && (int)regOff + 4 <= sz );
 
 	// entryCount is a little-endian u32 at the start of the registry block
-	const uint8_t* rp      = bytes + (int)regOff;
-	uint32_t       entryCount = (uint32_t)rp[0] | ( (uint32_t)rp[1] << 8 ) |
-	                             ( (uint32_t)rp[2] << 16 ) | ( (uint32_t)rp[3] << 24 );
+	const uint8_t* rp = bytes + (int)regOff;
+	uint32_t entryCount = (uint32_t)rp[0] | ( (uint32_t)rp[1] << 8 ) | ( (uint32_t)rp[2] << 16 ) | ( (uint32_t)rp[3] << 24 );
 	ENSURE( entryCount == 1 );
 
 	b3DestroyRecording( rec );
@@ -140,7 +137,7 @@ static int HullDedup( void )
 static int MidStreamNoContacts( void )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
@@ -148,20 +145,20 @@ static int MidStreamNoContacts( void )
 	sphere.center = (b3Vec3){ 0.0f, 0.0f, 0.0f };
 	sphere.radius = 0.5f;
 	b3ShapeDef shapeDef = b3DefaultShapeDef();
-	shapeDef.density    = 1.0f;
+	shapeDef.density = 1.0f;
 
 	// A few dynamic bodies well apart from each other so no contacts form
 	for ( int i = 0; i < 4; ++i )
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type      = b3_dynamicBody;
-		bodyDef.position  = (b3Pos){ (float)( i * 10 ), 50.0f, 0.0f };
-		b3BodyId bodyId   = b3CreateBody( worldId, &bodyDef );
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ (float)( i * 10 ), 50.0f, 0.0f };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3CreateSphereShape( bodyId, &shapeDef, &sphere );
 	}
 
-	float timeStep    = 1.0f / 60.0f;
-	int   subStepCount = 4;
+	float timeStep = 1.0f / 60.0f;
+	int subStepCount = 4;
 	for ( int i = 0; i < 10; ++i )
 	{
 		b3World_Step( worldId, timeStep, subStepCount );
@@ -190,23 +187,23 @@ static int MidStreamNoContacts( void )
 static int MidStreamContacts( void )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
 	// Static ground using a box hull
 	{
 		b3BodyDef groundDef = b3DefaultBodyDef();
-		groundDef.type      = b3_staticBody;
-		b3BodyId groundId   = b3CreateBody( worldId, &groundDef );
+		groundDef.type = b3_staticBody;
+		b3BodyId groundId = b3CreateBody( worldId, &groundDef );
 
-		b3BoxHull  groundBox  = b3MakeBoxHull( 50.0f, 1.0f, 50.0f );
+		b3BoxHull groundBox = b3MakeBoxHull( 50.0f, 1.0f, 50.0f );
 		b3ShapeDef groundShape = b3DefaultShapeDef();
 		b3CreateHullShape( groundId, &groundShape, &groundBox.base );
 	}
 
 	b3ShapeDef dynamicShape = b3DefaultShapeDef();
-	dynamicShape.density    = 1.0f;
+	dynamicShape.density = 1.0f;
 
 	// A few dynamic boxes dropped onto the ground
 	for ( int i = 0; i < 3; ++i )
@@ -214,14 +211,14 @@ static int MidStreamContacts( void )
 		b3BoxHull box = b3MakeBoxHull( 0.5f, 0.5f, 0.5f );
 
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type      = b3_dynamicBody;
-		bodyDef.position  = (b3Pos){ (float)( i * 2 ) - 2.0f, 5.0f, 0.0f };
-		b3BodyId bodyId   = b3CreateBody( worldId, &bodyDef );
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ (float)( i * 2 ) - 2.0f, 5.0f, 0.0f };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3CreateHullShape( bodyId, &dynamicShape, &box.base );
 	}
 
-	float timeStep    = 1.0f / 60.0f;
-	int   subStepCount = 4;
+	float timeStep = 1.0f / 60.0f;
+	int subStepCount = 4;
 
 	// Let the scene settle: bodies hit ground, build manifolds, islands, graph colors
 	for ( int i = 0; i < 60; ++i )
@@ -257,7 +254,7 @@ static int ScrubBackward( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
@@ -287,8 +284,8 @@ static int ScrubBackward( void )
 	}
 
 	float timeStep = 1.0f / 60.0f;
-	int   subStepCount = 4;
-	int   totalFrames = 80;
+	int subStepCount = 4;
+	int totalFrames = 80;
 	for ( int i = 0; i < totalFrames; ++i )
 	{
 		b3World_Step( worldId, timeStep, subStepCount );
@@ -298,10 +295,10 @@ static int ScrubBackward( void )
 	b3DestroyWorld( worldId );
 
 	const uint8_t* data = b3Recording_GetData( rec );
-	int            sz   = b3Recording_GetSize( rec );
+	int sz = b3Recording_GetSize( rec );
 
 	// Create the player
-	b3RecPlayer* player = b3RecPlayer_Create( data, sz, 1 );
+	b3RecPlayer* player = b3CreatePlayer( data, sz, 1 );
 	ENSURE( player != NULL );
 	ENSURE( b3RecPlayer_GetFrameCount( player ) == totalFrames );
 
@@ -343,7 +340,7 @@ static int ScrubBackward( void )
 	}
 
 	b3Free( hashes, (size_t)( totalFrames + 1 ) * sizeof( uint64_t ) );
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	b3DestroyRecording( rec );
 	return 0;
 }
@@ -354,10 +351,8 @@ static int ScrubBackward( void )
 static int SeekWithHull( void )
 {
 	b3Vec3 pts[8] = {
-		{ -1.0f, -1.0f, -1.0f }, {  1.0f, -1.0f, -1.0f },
-		{  1.0f,  1.0f, -1.0f }, { -1.0f,  1.0f, -1.0f },
-		{ -1.0f, -1.0f,  1.0f }, {  1.0f, -1.0f,  1.0f },
-		{  1.0f,  1.0f,  1.0f }, { -1.0f,  1.0f,  1.0f },
+		{ -1.0f, -1.0f, -1.0f }, { 1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, -1.0f }, { -1.0f, 1.0f, -1.0f },
+		{ -1.0f, -1.0f, 1.0f },	 { 1.0f, -1.0f, 1.0f },	 { 1.0f, 1.0f, 1.0f },	{ -1.0f, 1.0f, 1.0f },
 	};
 	b3HullData* hull = b3CreateHull( pts, 8, 8 );
 	ENSURE( hull != NULL );
@@ -366,7 +361,7 @@ static int SeekWithHull( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 	b3World_StartRecording( worldId, rec );
@@ -387,14 +382,14 @@ static int SeekWithHull( void )
 	for ( int i = 0; i < 3; ++i )
 	{
 		b3BodyDef bd = b3DefaultBodyDef();
-		bd.type      = b3_dynamicBody;
-		bd.position  = (b3Pos){ (float)( i * 4 ) - 4.0f, 5.0f, 0.0f };
+		bd.type = b3_dynamicBody;
+		bd.position = (b3Pos){ (float)( i * 4 ) - 4.0f, 5.0f, 0.0f };
 		b3BodyId bodyId = b3CreateBody( worldId, &bd );
 		b3CreateHullShape( bodyId, &sd, hull );
 	}
 
 	float timeStep = 1.0f / 60.0f;
-	int   totalFrames = 40;
+	int totalFrames = 40;
 	for ( int i = 0; i < totalFrames; ++i )
 	{
 		b3World_Step( worldId, timeStep, 4 );
@@ -405,9 +400,9 @@ static int SeekWithHull( void )
 	b3DestroyHull( hull );
 
 	const uint8_t* data = b3Recording_GetData( rec );
-	int            sz   = b3Recording_GetSize( rec );
+	int sz = b3Recording_GetSize( rec );
 
-	b3RecPlayer* player = b3RecPlayer_Create( data, sz, 1 );
+	b3RecPlayer* player = b3CreatePlayer( data, sz, 1 );
 	ENSURE( player != NULL );
 
 	// Step to end
@@ -425,7 +420,7 @@ static int SeekWithHull( void )
 	b3RecPlayer_SeekFrame( player, 0 );
 	ENSURE( b3RecPlayer_GetFrame( player ) == 0 );
 
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	b3DestroyRecording( rec );
 	return 0;
 }
@@ -453,13 +448,12 @@ static void RecTestDestroyDebugShape( void* userShape, void* userContext )
 	counters->destroyed += 1;
 }
 
-static bool RecTestDrawShape( void* userShape, b3WorldTransform transform, b3HexColor color, void* context )
+static void RecTestDrawShape( void* userShape, b3WorldTransform transform, b3HexColor color, void* context )
 {
 	(void)userShape;
 	(void)transform;
 	(void)color;
 	(void)context;
-	return true;
 }
 
 // b3World_Draw lazily fires createDebugShape for shapes entering the draw set, the same way the
@@ -484,13 +478,13 @@ static int DebugShapeCallbacks( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_StartRecording( worldId, rec );
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
 	b3BodyDef groundDef = b3DefaultBodyDef();
-	groundDef.type    = b3_staticBody;
+	groundDef.type = b3_staticBody;
 	b3BodyId groundId = b3CreateBody( worldId, &groundDef );
 	b3BoxHull groundBox = b3MakeBoxHull( 20.0f, 1.0f, 20.0f );
 	b3ShapeDef groundShape = b3DefaultShapeDef();
@@ -503,9 +497,9 @@ static int DebugShapeCallbacks( void )
 	for ( int i = 0; i < 4; ++i )
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type     = b3_dynamicBody;
+		bodyDef.type = b3_dynamicBody;
 		bodyDef.position = (b3Pos){ 0.0f, 1.0f + 1.1f * (float)i, 0.0f };
-		b3BodyId bodyId  = b3CreateBody( worldId, &bodyDef );
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3CreateHullShape( bodyId, &boxShape, &box.base );
 	}
 
@@ -523,7 +517,7 @@ static int DebugShapeCallbacks( void )
 	b3Recording* loaded = b3LoadRecordingFromFile( path );
 	ENSURE( loaded != NULL );
 
-	b3RecPlayer* player = b3RecPlayer_Create( b3Recording_GetData( loaded ), b3Recording_GetSize( loaded ), 1 );
+	b3RecPlayer* player = b3CreatePlayer( b3Recording_GetData( loaded ), b3Recording_GetSize( loaded ), 1 );
 	ENSURE( player != NULL );
 
 	// Wiring the callbacks rebuilds the world and rewinds to frame 0.
@@ -549,7 +543,7 @@ static int DebugShapeCallbacks( void )
 	ENSURE( counters.created > createdBefore );
 
 	// Teardown destroys the final world; every live shape is released, so the counts balance.
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	ENSURE( counters.created == counters.destroyed );
 
 	b3DestroyRecording( loaded );
@@ -564,7 +558,7 @@ static int DebugShapeCallbacks( void )
 static int PlayerAccessors( void )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
 	// Static ground (creation ordinal 0)
@@ -590,7 +584,7 @@ static int PlayerAccessors( void )
 	}
 
 	float timeStep = 1.0f / 60.0f;
-	int   subStepCount = 4;
+	int subStepCount = 4;
 
 	// Settle, then record with a snapshot of the populated world.
 	for ( int i = 0; i < 10; ++i )
@@ -610,7 +604,7 @@ static int PlayerAccessors( void )
 	b3World_StopRecording( worldId );
 	b3DestroyWorld( worldId );
 
-	b3RecPlayer* player = b3RecPlayer_Create( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 );
+	b3RecPlayer* player = b3CreatePlayer( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 );
 	ENSURE( player != NULL );
 
 	// Info reflects the recorded tuning and a non-degenerate bounds.
@@ -654,7 +648,7 @@ static int PlayerAccessors( void )
 	ENSURE( b3RecPlayer_GetKeyframeBudget( player ) == (size_t)256 * 1024 * 1024 );
 	ENSURE( b3RecPlayer_GetKeyframeBytes( player ) == 0 );
 
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	b3DestroyRecording( rec );
 	return 0;
 }
@@ -666,11 +660,11 @@ static int PlayerAccessors( void )
 static int KeyframeHandleReuse( void )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
 	b3BodyDef groundDef = b3DefaultBodyDef();
-	groundDef.type    = b3_staticBody;
+	groundDef.type = b3_staticBody;
 	b3BodyId groundId = b3CreateBody( worldId, &groundDef );
 	b3BoxHull groundBox = b3MakeBoxHull( 20.0f, 1.0f, 20.0f );
 	b3ShapeDef groundShape = b3DefaultShapeDef();
@@ -683,9 +677,9 @@ static int KeyframeHandleReuse( void )
 	for ( int i = 0; i < dynamicCount; ++i )
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type     = b3_dynamicBody;
+		bodyDef.type = b3_dynamicBody;
 		bodyDef.position = (b3Pos){ 0.0f, 1.0f + 1.1f * (float)i, 0.0f };
-		b3BodyId bodyId  = b3CreateBody( worldId, &bodyDef );
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3CreateHullShape( bodyId, &boxShape, &box.base );
 	}
 	int shapeCount = 1 + dynamicCount;
@@ -708,7 +702,7 @@ static int KeyframeHandleReuse( void )
 	b3World_StopRecording( worldId );
 	b3DestroyWorld( worldId );
 
-	b3RecPlayer* player = b3RecPlayer_Create( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 );
+	b3RecPlayer* player = b3CreatePlayer( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 );
 	ENSURE( player != NULL );
 
 	DebugShapeCounters counters = { 0, 0 };
@@ -732,7 +726,7 @@ static int KeyframeHandleReuse( void )
 	ENSURE( counters.created == createdAfterFirstDraw );
 
 	// Teardown releases exactly the live handles, so the leak-free invariant holds.
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	ENSURE( counters.created == counters.destroyed );
 
 	b3DestroyRecording( rec );
@@ -785,13 +779,13 @@ static int QueryReplay( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
 
 	b3BodyDef groundDef = b3DefaultBodyDef();
-	groundDef.type    = b3_staticBody;
-	b3BodyId  groundId = b3CreateBody( worldId, &groundDef );
-	b3BoxHull groundBox   = b3MakeBoxHull( 20.0f, 1.0f, 20.0f );
+	groundDef.type = b3_staticBody;
+	b3BodyId groundId = b3CreateBody( worldId, &groundDef );
+	b3BoxHull groundBox = b3MakeBoxHull( 20.0f, 1.0f, 20.0f );
 	b3ShapeDef groundShape = b3DefaultShapeDef();
 	b3CreateHullShape( groundId, &groundShape, &groundBox.base );
 
@@ -799,12 +793,12 @@ static int QueryReplay( void )
 	for ( int i = 0; i < 4; ++i )
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type     = b3_dynamicBody;
+		bodyDef.type = b3_dynamicBody;
 		bodyDef.position = (b3Pos){ (float)i - 1.5f, 3.0f, 0.0f };
-		b3BodyId bodyId  = b3CreateBody( worldId, &bodyDef );
-		b3Sphere sphere  = { { 0.0f, 0.0f, 0.0f }, 0.5f };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+		b3Sphere sphere = { { 0.0f, 0.0f, 0.0f }, 0.5f };
 		b3ShapeDef sphereDef = b3DefaultShapeDef();
-		sphereDef.density    = 1.0f;
+		sphereDef.density = 1.0f;
 		b3CreateSphereShape( bodyId, &sphereDef, &sphere );
 	}
 
@@ -815,13 +809,13 @@ static int QueryReplay( void )
 	const int totalFrames = 30;
 	for ( int i = 0; i < totalFrames; ++i )
 	{
-		b3Pos  origin      = { 0.0f, 6.0f, 0.0f };
+		b3Pos origin = { 0.0f, 6.0f, 0.0f };
 		b3Vec3 translation = { 0.0f, -8.0f, 0.0f };
-		b3AABB aabb        = { { -5.0f, -1.0f, -5.0f }, { 5.0f, 6.0f, 5.0f } };
+		b3AABB aabb = { { -5.0f, -1.0f, -5.0f }, { 5.0f, 6.0f, 5.0f } };
 
-		b3Vec3       proxyPts = { 0.0f, 0.0f, 0.0f };
-		b3ShapeProxy proxy    = { &proxyPts, 1, 0.5f };
-		b3Capsule    mover    = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, 0.3f };
+		b3Vec3 proxyPts = { 0.0f, 0.0f, 0.0f };
+		b3ShapeProxy proxy = { &proxyPts, 1, 0.5f };
+		b3Capsule mover = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, 0.3f };
 
 		b3World_OverlapAABB( worldId, aabb, filter, QueryReplayOverlapFcn, NULL );
 		b3World_OverlapShape( worldId, origin, &proxy, filter, QueryReplayOverlapFcn, NULL );
@@ -841,7 +835,7 @@ static int QueryReplay( void )
 	ENSURE( b3ValidateReplay( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 ) );
 
 	// Player path: seek to a mid frame and confirm the per-frame store holds all seven queries.
-	b3RecPlayer* player = b3RecPlayer_Create( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 );
+	b3RecPlayer* player = b3CreatePlayer( b3Recording_GetData( rec ), b3Recording_GetSize( rec ), 1 );
 	ENSURE( player != NULL );
 
 	b3RecPlayer_SeekFrame( player, 15 );
@@ -864,7 +858,7 @@ static int QueryReplay( void )
 	}
 	ENSURE( sawCastRay );
 
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	b3DestroyRecording( rec );
 	return 0;
 }
@@ -879,12 +873,12 @@ static int TaggedQuery( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3BodyDef groundDef = b3DefaultBodyDef();
-	groundDef.type     = b3_staticBody;
-	b3BodyId   groundId = b3CreateBody( worldId, &groundDef );
-	b3BoxHull  groundBox   = b3MakeBoxHull( 20.0f, 1.0f, 20.0f );
+	groundDef.type = b3_staticBody;
+	b3BodyId groundId = b3CreateBody( worldId, &groundDef );
+	b3BoxHull groundBox = b3MakeBoxHull( 20.0f, 1.0f, 20.0f );
 	b3ShapeDef groundShape = b3DefaultShapeDef();
 	b3CreateHullShape( groundId, &groundShape, &groundBox.base );
 
@@ -892,11 +886,11 @@ static int TaggedQuery( void )
 
 	// Same label, different entity ids: distinct logical queries with distinct keys.
 	b3QueryFilter bullet53 = b3DefaultQueryFilter();
-	bullet53.id   = 53;
+	bullet53.id = 53;
 	bullet53.name = "bullet";
 
 	b3QueryFilter bullet54 = b3DefaultQueryFilter();
-	bullet54.id   = 54;
+	bullet54.id = 54;
 	bullet54.name = "bullet";
 
 	b3QueryFilter untagged = b3DefaultQueryFilter();
@@ -908,9 +902,9 @@ static int TaggedQuery( void )
 	const int totalFrames = 10;
 	for ( int i = 0; i < totalFrames; ++i )
 	{
-		b3Pos  origin      = { 0.0f, 6.0f, 0.0f };
+		b3Pos origin = { 0.0f, 6.0f, 0.0f };
 		b3Vec3 translation = { 0.0f, -8.0f, 0.0f };
-		b3AABB aabb        = { { -5.0f, -1.0f, -5.0f }, { 5.0f, 6.0f, 5.0f } };
+		b3AABB aabb = { { -5.0f, -1.0f, -5.0f }, { 5.0f, 6.0f, 5.0f } };
 
 		// Two tagged rays sharing the label "bullet" plus one untagged overlap, every frame.
 		b3World_CastRay( worldId, origin, translation, bullet53, QueryReplayCastFcn, NULL );
@@ -931,7 +925,7 @@ static int TaggedQuery( void )
 	b3Recording* loaded = b3LoadRecordingFromFile( path );
 	ENSURE( loaded != NULL );
 
-	b3RecPlayer* player = b3RecPlayer_Create( b3Recording_GetData( loaded ), b3Recording_GetSize( loaded ), 1 );
+	b3RecPlayer* player = b3CreatePlayer( b3Recording_GetData( loaded ), b3Recording_GetSize( loaded ), 1 );
 	ENSURE( player != NULL );
 
 	b3RecPlayer_SeekFrame( player, 5 );
@@ -960,7 +954,7 @@ static int TaggedQuery( void )
 	}
 	ENSURE( saw53 && saw54 && sawUntagged );
 
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	b3DestroyRecording( loaded );
 	b3DestroyRecording( rec );
 	return 0;
@@ -975,7 +969,7 @@ static int EmptyWorldRoundTrip( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_StartRecording( worldId, rec );
 	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
@@ -989,7 +983,7 @@ static int EmptyWorldRoundTrip( void )
 	b3DestroyWorld( worldId );
 
 	const uint8_t* data = b3Recording_GetData( rec );
-	int            size = b3Recording_GetSize( rec );
+	int size = b3Recording_GetSize( rec );
 
 	// The seed snapshot is written even with no bodies.
 	b3RecHeader hdr;
@@ -999,7 +993,7 @@ static int EmptyWorldRoundTrip( void )
 	ENSURE( b3ValidateReplay( data, size, 1 ) );
 
 	// Restart restores in place, so the replay world id survives a rewind.
-	b3RecPlayer* player = b3RecPlayer_Create( data, size, 1 );
+	b3RecPlayer* player = b3CreatePlayer( data, size, 1 );
 	ENSURE( player != NULL );
 
 	uint32_t worldKey = b3StoreWorldId( b3RecPlayer_GetWorldId( player ) );
@@ -1012,7 +1006,7 @@ static int EmptyWorldRoundTrip( void )
 	ENSURE( b3RecPlayer_GetFrame( player ) == 0 );
 	ENSURE( !b3RecPlayer_HasDiverged( player ) );
 
-	b3RecPlayer_Destroy( player );
+	b3DestroyPlayer( player );
 	b3DestroyRecording( rec );
 	return 0;
 }
@@ -1042,17 +1036,18 @@ static int AllOps( void )
 	b3ShapeId groundShapeId = b3CreateHullShape( groundId, &groundShapeDef, &groundBox.base );
 	ENSURE( b3Shape_IsValid( groundShapeId ) );
 
-	// Dynamic body with a sphere shape. The name is intentionally longer than B3_BODY_NAME_LENGTH so
-	// replay exercises the over-length name path in the body def reader.
+	// Dynamic body with a sphere shape.
 	b3BodyDef bodyDef = b3DefaultBodyDef();
 	bodyDef.type = b3_dynamicBody;
 	bodyDef.position = (b3Pos){ 0.0f, 5.0f, 0.0f };
-	bodyDef.name = "testBodyWithVeryLongNameThatExceedsTheNameLength";
+	bodyDef.name = "testBodyWithVeryLongNameThatIsAVeryLongNameLength";
 	b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 	ENSURE( b3Body_IsValid( bodyId ) );
 
 	b3ShapeDef sphereShapeDef = b3DefaultShapeDef();
 	sphereShapeDef.density = 1.0f;
+	// Over-length shape name so replay exercises the clamp in the shape def reader, like the body above.
+	sphereShapeDef.name = "sphereNameThatExceedsTheLimit";
 	b3Sphere sphere = { { 0.0f, 0.0f, 0.0f }, 0.5f };
 	b3ShapeId sphereShapeId = b3CreateSphereShape( bodyId, &sphereShapeDef, &sphere );
 	ENSURE( b3Shape_IsValid( sphereShapeId ) );
@@ -1072,10 +1067,8 @@ static int AllOps( void )
 
 	// Custom hull shape on a third dynamic body
 	b3Vec3 hullPts[8] = {
-		{ -0.5f, -0.5f, -0.5f }, {  0.5f, -0.5f, -0.5f },
-		{  0.5f,  0.5f, -0.5f }, { -0.5f,  0.5f, -0.5f },
-		{ -0.5f, -0.5f,  0.5f }, {  0.5f, -0.5f,  0.5f },
-		{  0.5f,  0.5f,  0.5f }, { -0.5f,  0.5f,  0.5f },
+		{ -0.5f, -0.5f, -0.5f }, { 0.5f, -0.5f, -0.5f }, { 0.5f, 0.5f, -0.5f }, { -0.5f, 0.5f, -0.5f },
+		{ -0.5f, -0.5f, 0.5f },	 { 0.5f, -0.5f, 0.5f },	 { 0.5f, 0.5f, 0.5f },	{ -0.5f, 0.5f, 0.5f },
 	};
 	b3HullData* customHull = b3CreateHull( hullPts, 8, 8 );
 	ENSURE( customHull != NULL );
@@ -1113,8 +1106,8 @@ static int AllOps( void )
 	b3ShapeDef xformShapeDef = b3DefaultShapeDef();
 	xformShapeDef.density = 1.0f;
 	b3Transform xformXf = { (b3Vec3){ 0.1f, 0.2f, -0.1f }, b3MakeQuatFromAxisAngle( (b3Vec3){ 0.0f, 1.0f, 0.0f }, 0.4f ) };
-	b3ShapeId xformShapeId = b3CreateTransformedHullShape( xformBodyId, &xformShapeDef, customHull, xformXf,
-														  (b3Vec3){ 1.25f, 0.75f, 1.5f } );
+	b3ShapeId xformShapeId =
+		b3CreateTransformedHullShape( xformBodyId, &xformShapeDef, customHull, xformXf, (b3Vec3){ 1.25f, 0.75f, 1.5f } );
 	ENSURE( b3Shape_IsValid( xformShapeId ) );
 
 	// Mesh, height field, and compound static shapes (3D-only)
@@ -1124,8 +1117,11 @@ static int AllOps( void )
 	b3BodyId meshBodyId = b3CreateBody( worldId, &meshBodyDef );
 	b3MeshData* meshData = b3CreateGridMesh( 3, 3, 2.0f, 0, false );
 	ENSURE( meshData != NULL );
+	b3MeshData* swapMeshData = b3CreateGridMesh( 4, 4, 1.5f, 0, false );
+	ENSURE( swapMeshData != NULL );
 	b3ShapeDef meshShapeDef = b3DefaultShapeDef();
-	b3CreateMeshShape( meshBodyId, &meshShapeDef, meshData, (b3Vec3){ 1.0f, 1.0f, 1.0f } );
+	b3ShapeId meshShapeId = b3CreateMeshShape( meshBodyId, &meshShapeDef, meshData, (b3Vec3){ 1.0f, 1.0f, 1.0f } );
+	ENSURE( b3Shape_IsValid( meshShapeId ) );
 
 	b3BodyDef hfBodyDef = b3DefaultBodyDef();
 	hfBodyDef.type = b3_staticBody;
@@ -1150,16 +1146,16 @@ static int AllOps( void )
 	b3CompoundData* compound = b3CreateCompound( &compoundDef );
 	ENSURE( compound != NULL );
 	b3ShapeDef compoundShapeDef = b3DefaultShapeDef();
-	b3CreateCompoundShape( compoundBodyId, &compoundShapeDef, compound );
+	b3CreateBakedCompoundShape( compoundBodyId, &compoundShapeDef, compound );
 
 	// Throwaway shape to exercise DestroyShape
 	b3Sphere tmpSphere = { { 0.0f, 0.0f, 0.0f }, 0.1f };
 	b3ShapeId tmpShapeId = b3CreateSphereShape( capsuleBodyId, &capsuleShapeDef, &tmpSphere );
 	b3DestroyShape( tmpShapeId, true );
 
-	// Shape mutators: SetFriction, SetRestitution, SetDensity, SetSurfaceMaterial, SetFilter,
-	// EnableSensorEvents, EnableContactEvents, EnableHitEvents, EnablePreSolveEvents, ApplyWind,
-	// SetSphere, SetCapsule
+	// Shape mutators: SetFriction, SetRestitution, SetDensity, SetSurfaceMaterial, SetMeshMaterial,
+	// SetFilter, EnableSensorEvents, EnableContactEvents, EnableHitEvents, EnablePreSolveEvents,
+	// ApplyWind, SetSphere, SetCapsule, SetHull, SetMesh, SetName
 	b3Shape_SetFriction( boxShapeId, 0.3f );
 	b3Shape_SetRestitution( capsuleShapeId, 0.5f );
 	b3Shape_SetDensity( boxShapeId, 3.0f, true );
@@ -1179,6 +1175,15 @@ static int AllOps( void )
 	b3Shape_SetSphere( sphereShapeId, &newSphere );
 	b3Capsule newCapsule = { { 0.0f, -0.3f, 0.0f }, { 0.0f, 0.3f, 0.0f }, 0.3f };
 	b3Shape_SetCapsule( capsuleShapeId, &newCapsule );
+	b3Shape_SetName( boxShapeId, "box" );
+
+	// Geometry swaps intern into the registry at the record site. The repeated SetHull takes the
+	// shared hull short circuit, which changes nothing and so must leave the stream alone.
+	b3BoxHull swapHull = b3MakeBoxHull( 0.3f, 0.7f, 0.4f );
+	b3Shape_SetHull( boxShapeId, &swapHull.base );
+	b3Shape_SetHull( boxShapeId, &swapHull.base );
+	b3Shape_SetMesh( meshShapeId, swapMeshData, (b3Vec3){ 1.0f, 1.0f, 1.0f } );
+	b3Shape_SetMeshMaterial( meshShapeId, surfMat, 0 );
 
 	// Body mutators: SetTransform, SetLinearVelocity/AngularVelocity (Vec3), SetName,
 	// damping, gravity scale, sleep threshold, SetAwake, EnableSleep, SetBullet, SetMotionLocks,
@@ -1459,6 +1464,7 @@ static int AllOps( void )
 	// Free geometry allocated for this subtest
 	b3DestroyHull( customHull );
 	b3DestroyMesh( meshData );
+	b3DestroyMesh( swapMeshData );
 	b3DestroyHeightField( hf );
 	b3DestroyCompound( compound );
 
@@ -1480,7 +1486,7 @@ static int AllOps( void )
 	// Drive the incremental player. Exercises per-frame stepping, restart, getters, and the
 	// draw path beyond what b3ValidateReplay covers.
 	{
-		b3RecPlayer* player = b3RecPlayer_Create( recData, recSize, 1 );
+		b3RecPlayer* player = b3CreatePlayer( recData, recSize, 1 );
 		ENSURE( player != NULL );
 
 		b3RecPlayerInfo info = b3RecPlayer_GetInfo( player );
@@ -1523,7 +1529,7 @@ static int AllOps( void )
 		ENSURE( frames2 == 12 );
 		ENSURE( b3RecPlayer_HasDiverged( player ) == false );
 
-		b3RecPlayer_Destroy( player );
+		b3DestroyPlayer( player );
 	}
 
 	b3DestroyRecording( rec );
@@ -1537,10 +1543,8 @@ static int AllOps( void )
 static int TransformedHullRoundTrip( void )
 {
 	b3Vec3 pts[8] = {
-		{ -1.0f, -1.0f, -1.0f }, {  1.0f, -1.0f, -1.0f },
-		{  1.0f,  1.0f, -1.0f }, { -1.0f,  1.0f, -1.0f },
-		{ -1.0f, -1.0f,  1.0f }, {  1.0f, -1.0f,  1.0f },
-		{  1.0f,  1.0f,  1.0f }, { -1.0f,  1.0f,  1.0f },
+		{ -1.0f, -1.0f, -1.0f }, { 1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, -1.0f }, { -1.0f, 1.0f, -1.0f },
+		{ -1.0f, -1.0f, 1.0f },	 { 1.0f, -1.0f, 1.0f },	 { 1.0f, 1.0f, 1.0f },	{ -1.0f, 1.0f, 1.0f },
 	};
 	b3HullData* hull = b3CreateHull( pts, 8, 8 );
 	ENSURE( hull != NULL );
@@ -1549,22 +1553,22 @@ static int TransformedHullRoundTrip( void )
 	ENSURE( rec != NULL );
 
 	b3WorldDef worldDef = b3DefaultWorldDef();
-	b3WorldId  worldId  = b3CreateWorld( &worldDef );
+	b3WorldId worldId = b3CreateWorld( &worldDef );
 
 	b3World_StartRecording( worldId, rec );
 
 	b3ShapeDef shapeDef = b3DefaultShapeDef();
-	shapeDef.density    = 1.0f;
+	shapeDef.density = 1.0f;
 
 	// Baked transform with a rotation and non-uniform scale, the path Unreal uses for instanced hulls.
-	b3Transform xf  = { (b3Vec3){ 0.25f, 0.0f, -0.5f }, b3MakeQuatFromAxisAngle( (b3Vec3){ 0.0f, 0.0f, 1.0f }, 0.3f ) };
-	b3Vec3      scl = { 1.5f, 0.5f, 2.0f };
+	b3Transform xf = { (b3Vec3){ 0.25f, 0.0f, -0.5f }, b3MakeQuatFromAxisAngle( (b3Vec3){ 0.0f, 0.0f, 1.0f }, 0.3f ) };
+	b3Vec3 scl = { 1.5f, 0.5f, 2.0f };
 	for ( int i = 0; i < 3; ++i )
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type      = b3_dynamicBody;
-		bodyDef.position  = (b3Pos){ (float)( i * 3 ), 5.0f, 0.0f };
-		b3BodyId bodyId   = b3CreateBody( worldId, &bodyDef );
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ (float)( i * 3 ), 5.0f, 0.0f };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3ShapeId sid = b3CreateTransformedHullShape( bodyId, &shapeDef, hull, xf, scl );
 		ENSURE( b3Shape_IsValid( sid ) );
 	}
@@ -1573,9 +1577,9 @@ static int TransformedHullRoundTrip( void )
 	// shape's recorded id would not match what replay allocates and b3ValidateReplay would fail.
 	{
 		b3BodyDef bodyDef = b3DefaultBodyDef();
-		bodyDef.type      = b3_dynamicBody;
-		bodyDef.position  = (b3Pos){ 0.0f, 10.0f, 0.0f };
-		b3BodyId bodyId   = b3CreateBody( worldId, &bodyDef );
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ 0.0f, 10.0f, 0.0f };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
 		b3ShapeId sid = b3CreateHullShape( bodyId, &shapeDef, hull );
 		ENSURE( b3Shape_IsValid( sid ) );
 	}
@@ -1662,20 +1666,6 @@ static int GeometryHashCollision( void )
 	const int n = 16;
 	const uint64_t sharedHash = 0xABCD1234ull;
 
-	// The content hash must use its full width: a one-byte change in a same-length blob has to perturb
-	// the high word too, not just the low one, which is the trap a reseeded 32-bit djb2 fell into.
-	{
-		uint8_t p[16];
-		uint8_t q[16];
-		memset( p, 0x11, sizeof( p ) );
-		memset( q, 0x11, sizeof( q ) );
-		q[7] = 0x12;
-		uint64_t hp = b3Hash64Blob( p, (int)sizeof( p ) );
-		uint64_t hq = b3Hash64Blob( q, (int)sizeof( q ) );
-		ENSURE( hp != hq );
-		ENSURE( (uint32_t)( hp >> 32 ) != (uint32_t)( hq >> 32 ) );
-	}
-
 	b3GeometryRegistry reg = { 0 };
 
 	uint8_t* blobA = (uint8_t*)b3Alloc( (size_t)n );
@@ -1687,7 +1677,7 @@ static int GeometryHashCollision( void )
 	uint32_t idA = b3InternGeometry( &reg, b3_geometryHull, sharedHash, blobA, n );
 	uint32_t idB = b3InternGeometry( &reg, b3_geometryHull, sharedHash, blobB, n );
 	ENSURE( idA != idB );
-	ENSURE( reg.count == 2 );
+	ENSURE( reg.entries.count == 2 );
 
 	// Re-interning either blob must find it through the hash chain and never grow the registry,
 	// including the one shadowed behind the bucket head. The old single-entry lookup missed the
@@ -1695,12 +1685,12 @@ static int GeometryHashCollision( void )
 	uint8_t* blobA2 = (uint8_t*)b3Alloc( (size_t)n );
 	memset( blobA2, 0xAA, (size_t)n );
 	ENSURE( b3InternGeometry( &reg, b3_geometryHull, sharedHash, blobA2, n ) == idA );
-	ENSURE( reg.count == 2 );
+	ENSURE( reg.entries.count == 2 );
 
 	uint8_t* blobB2 = (uint8_t*)b3Alloc( (size_t)n );
 	memset( blobB2, 0xBB, (size_t)n );
 	ENSURE( b3InternGeometry( &reg, b3_geometryHull, sharedHash, blobB2, n ) == idB );
-	ENSURE( reg.count == 2 );
+	ENSURE( reg.entries.count == 2 );
 
 	b3FreeRegistry( &reg );
 
@@ -1720,23 +1710,369 @@ static int GeometryHashCollision( void )
 	uint8_t* live = (uint8_t*)b3Alloc( (size_t)n );
 	memset( live, 0xAA, (size_t)n );
 	uint32_t resolved = b3InternGeometry( &seeded, b3_geometryHull, sharedHash, live, n );
-	ENSURE( seeded.count == 3 );                                   // no growth
-	ENSURE( resolved == 0 || resolved == 2 );                      // a valid slot index for that content
-	ENSURE( seeded.entries[resolved].byteCount == n );
-	ENSURE( memcmp( seeded.entries[resolved].bytes, slot0, (size_t)n ) == 0 );
+	ENSURE( seeded.entries.count == 3 );	  // no growth
+	ENSURE( resolved == 0 || resolved == 2 ); // a valid slot index for that content
+	ENSURE( seeded.entries.data[resolved].byteCount == n );
+	ENSURE( memcmp( seeded.entries.data[resolved].bytes, slot0, (size_t)n ) == 0 );
 
 	b3FreeRegistry( &seeded );
+	return 0;
+}
+
+// Staged stepping must reveal a mid-stream body at its creation transform. A body created and given an
+// impulse in one recorded step is first placed by CreateBody, then displaced by the following Step. Atomic
+// replay fuses the two, so the body is only ever seen already moved. Staged replay parks between them so
+// the pre-integration pose is drawable. Verify the parked pose is the creation transform, that atomic
+// replay does not show it, and that the extra park does not perturb the end state.
+static int StagedStepCreationPose( void )
+{
+	b3Recording* rec = b3CreateRecording( 0 );
+	ENSURE( rec != NULL );
+
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+	b3World_SetGravity( worldId, (b3Vec3){ 0.0f, -10.0f, 0.0f } );
+
+	b3World_StartRecording( worldId, rec );
+
+	float timeStep = 1.0f / 60.0f;
+	int subStepCount = 4;
+
+	// A few empty steps so the creation lands inside the stream, not at frame 0.
+	const int leadFrames = 3;
+	for ( int i = 0; i < leadFrames; ++i )
+	{
+		b3World_Step( worldId, timeStep, subStepCount );
+	}
+
+	// The creation transform under test. No ground, so the body is the only create and stays ballistic.
+	// Components are exact in float so the round-trip pose compares tight.
+	const b3Pos spawn = { 1.0, 20.0, -2.0 };
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.type = b3_dynamicBody;
+	bodyDef.position = spawn;
+	b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+
+	b3Sphere sphere = { { 0.0f, 0.0f, 0.0f }, 0.5f };
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	shapeDef.density = 1.0f;
+	b3CreateSphereShape( bodyId, &shapeDef, &sphere );
+
+	// Impulse along +x so the first integrated step moves the body a visible distance off the spawn.
+	b3Body_ApplyLinearImpulseToCenter( bodyId, (b3Vec3){ 5.0f, 0.0f, 0.0f }, true );
+
+	const int creationFrame = leadFrames + 1;
+	b3World_Step( worldId, timeStep, subStepCount ); // advances to creationFrame
+
+	const int totalFrames = creationFrame + 3;
+	for ( int i = creationFrame; i < totalFrames; ++i )
+	{
+		b3World_Step( worldId, timeStep, subStepCount );
+	}
+
+	b3World_StopRecording( worldId );
+	b3DestroyWorld( worldId );
+
+	const uint8_t* data = b3Recording_GetData( rec );
+	int sz = b3Recording_GetSize( rec );
+
+	// Atomic replay fuses the create and its step, so at the creation frame the body is already
+	// integrated and displaced along +x. Capture that pose and the final state hash.
+	b3RecPlayer* atomic = b3CreatePlayer( data, sz, 1 );
+	ENSURE( atomic != NULL );
+	b3Pos atomicPose = { 0.0, 0.0, 0.0 };
+	while ( !b3RecPlayer_IsAtEnd( atomic ) )
+	{
+		b3RecPlayer_StepFrame( atomic );
+		if ( b3RecPlayer_GetFrame( atomic ) == creationFrame )
+		{
+			b3BodyId id = b3RecPlayer_GetBodyId( atomic, 0 );
+			ENSURE( b3Body_IsValid( id ) );
+			atomicPose = b3Body_GetPosition( id );
+		}
+	}
+	ENSURE( b3RecPlayer_GetFrame( atomic ) == totalFrames );
+	ENSURE( !b3RecPlayer_HasDiverged( atomic ) );
+	ENSURE( atomicPose.x - spawn.x > 0.01 ); // the impulse moved it before it was ever seen
+	uint64_t atomicHash = b3HashWorldState( b3GetWorldFromId( b3RecPlayer_GetWorldId( atomic ) ) );
+	b3DestroyPlayer( atomic );
+
+	// Staged replay: step forward until the first pre-step park. It must sit at the creation frame's
+	// pre-integration state with the new body at exactly its spawn transform.
+	b3RecPlayer* staged = b3CreatePlayer( data, sz, 1 );
+	ENSURE( staged != NULL );
+	while ( !b3RecPlayer_IsAtEnd( staged ) )
+	{
+		b3RecPlayer_SubStepFrame( staged );
+		if ( b3RecPlayer_IsAtPreStep( staged ) )
+		{
+			break;
+		}
+	}
+	ENSURE( b3RecPlayer_IsAtPreStep( staged ) );
+	ENSURE( b3RecPlayer_GetFrame( staged ) == creationFrame - 1 ); // parked before the step, frame not advanced
+
+	b3BodyId stagedId = b3RecPlayer_GetBodyId( staged, 0 );
+	ENSURE( b3Body_IsValid( stagedId ) );
+	b3Pos parkPose = b3Body_GetPosition( stagedId );
+	ENSURE_SMALL( parkPose.x - spawn.x, 1.0e-4 );
+	ENSURE_SMALL( parkPose.y - spawn.y, 1.0e-4 );
+	ENSURE_SMALL( parkPose.z - spawn.z, 1.0e-4 );
+
+	// Finishing the frame integrates the body, so it leaves the spawn pose on the next advance.
+	b3RecPlayer_SubStepFrame( staged );
+	ENSURE( b3RecPlayer_GetFrame( staged ) == creationFrame );
+	ENSURE( !b3RecPlayer_IsAtPreStep( staged ) );
+
+	// Run staged to the end: the same op stream, so it must land on the atomic end state bit for bit.
+	while ( !b3RecPlayer_IsAtEnd( staged ) )
+	{
+		b3RecPlayer_SubStepFrame( staged );
+	}
+	ENSURE( b3RecPlayer_GetFrame( staged ) == totalFrames );
+	ENSURE( !b3RecPlayer_HasDiverged( staged ) );
+	uint64_t stagedHash = b3HashWorldState( b3GetWorldFromId( b3RecPlayer_GetWorldId( staged ) ) );
+	ENSURE( stagedHash == atomicHash );
+	b3DestroyPlayer( staged );
+
+	b3DestroyRecording( rec );
+	return 0;
+}
+
+// Shape names are debug only and do not feed the determinism hash, so b3ValidateReplay cannot catch a
+// broken name round-trip. Replay through the player and read the names back to prove the def field and
+// the ShapeSetName op survive serialization.
+static int ShapeNameReplay( void )
+{
+	const char* names[3] = {
+		"def",
+		"set",
+		"abcdefghijklmnopqrstuvwxyz",
+	};
+
+	b3Recording* rec = b3CreateRecording( 0 );
+	ENSURE( rec != NULL );
+
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+	b3World_StartRecording( worldId, rec );
+
+	b3Sphere sphere = { { 0.0f, 0.0f, 0.0f }, 0.5f };
+
+	// One shape per body so read-back never depends on per-body shape ordering.
+	for ( int i = 0; i < 3; ++i )
+	{
+		b3BodyDef bd = b3DefaultBodyDef();
+		bd.type = b3_dynamicBody;
+		bd.position = (b3Pos){ 3.0f * (float)i, 5.0f, 0.0f };
+		b3BodyId body = b3CreateBody( worldId, &bd );
+
+		b3ShapeDef sd = b3DefaultShapeDef();
+		sd.density = 1.0f;
+		if ( i != 1 )
+		{
+			sd.name = names[i];
+		}
+		b3ShapeId shape = b3CreateSphereShape( body, &sd, &sphere );
+		if ( i == 1 )
+		{
+			b3Shape_SetName( shape, names[i] );
+		}
+	}
+
+	for ( int i = 0; i < 4; ++i )
+	{
+		b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	}
+
+	b3World_StopRecording( worldId );
+	b3DestroyWorld( worldId );
+
+	const uint8_t* data = b3Recording_GetData( rec );
+	int sz = b3Recording_GetSize( rec );
+
+	b3RecPlayer* player = b3CreatePlayer( data, sz, 1 );
+	ENSURE( player != NULL );
+	while ( b3RecPlayer_StepFrame( player ) )
+	{
+	}
+	ENSURE( b3RecPlayer_HasDiverged( player ) == false );
+
+	// Body ordinals follow creation order in the replayed world.
+	for ( int i = 0; i < 3; ++i )
+	{
+		b3BodyId body = b3RecPlayer_GetBodyId( player, i );
+		ENSURE( b3Body_IsValid( body ) );
+
+		b3ShapeId shape;
+		ENSURE( b3Body_GetShapes( body, &shape, 1 ) == 1 );
+		const char* got = b3Shape_GetName( shape );
+		ENSURE( got != NULL );
+
+		int srcLen = (int)strlen( names[i] );
+		ENSURE( (int)strlen( got ) == srcLen );
+		if ( srcLen > 0 )
+		{
+			ENSURE( strncmp( got, names[i], (size_t)srcLen ) == 0 );
+		}
+	}
+
+	b3DestroyPlayer( player );
+	b3DestroyRecording( rec );
+	return 0;
+}
+
+// A box sliding across a mesh floor, with the option to swap both geometries and retune a
+// per-triangle material part way through. Returns the final state hash so the caller can prove the
+// mutations move the simulation. Recording is optional so the same scene serves as the control.
+static uint64_t RunGeometryMutatorScene( b3Recording* rec, bool mutate, const b3MeshData* meshA, const b3MeshData* meshB,
+										 const b3HullData* swapHull, float swapFriction )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.workerCount = 1;
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+
+	if ( rec != NULL )
+	{
+		b3World_StartRecording( worldId, rec );
+	}
+
+	// The mesh body is created first so its ordinal is stable for the read back after replay.
+	b3SurfaceMaterial meshMaterials[2] = { b3DefaultSurfaceMaterial(), b3DefaultSurfaceMaterial() };
+	meshMaterials[1].friction = 0.05f;
+
+	b3BodyDef meshBodyDef = b3DefaultBodyDef();
+	meshBodyDef.type = b3_staticBody;
+	b3BodyId meshBodyId = b3CreateBody( worldId, &meshBodyDef );
+
+	b3ShapeDef meshShapeDef = b3DefaultShapeDef();
+	meshShapeDef.materials = meshMaterials;
+	meshShapeDef.materialCount = 2;
+	b3ShapeId meshShapeId = b3CreateMeshShape( meshBodyId, &meshShapeDef, meshA, (b3Vec3){ 1.0f, 1.0f, 1.0f } );
+
+	b3BodyDef boxBodyDef = b3DefaultBodyDef();
+	boxBodyDef.type = b3_dynamicBody;
+	boxBodyDef.position = (b3Pos){ -2.0f, 2.0f, 0.0f };
+	boxBodyDef.linearVelocity = (b3Vec3){ 4.0f, 0.0f, 0.0f };
+	b3BodyId boxBodyId = b3CreateBody( worldId, &boxBodyDef );
+
+	b3BoxHull box = b3MakeBoxHull( 0.5f, 0.5f, 0.5f );
+	b3ShapeDef boxShapeDef = b3DefaultShapeDef();
+	boxShapeDef.density = 1.0f;
+	b3ShapeId boxShapeId = b3CreateHullShape( boxBodyId, &boxShapeDef, &box.base );
+
+	float timeStep = 1.0f / 60.0f;
+	for ( int i = 0; i < 10; ++i )
+	{
+		b3World_Step( worldId, timeStep, 4 );
+	}
+
+	if ( mutate )
+	{
+		b3Shape_SetHull( boxShapeId, swapHull );
+		b3Shape_SetMesh( meshShapeId, meshB, (b3Vec3){ 1.0f, 1.0f, 1.0f } );
+
+		b3SurfaceMaterial grippy = b3DefaultSurfaceMaterial();
+		grippy.friction = swapFriction;
+		b3Shape_SetMeshMaterial( meshShapeId, grippy, 1 );
+	}
+
+	for ( int i = 0; i < 30; ++i )
+	{
+		b3World_Step( worldId, timeStep, 4 );
+	}
+
+	uint64_t hash = b3HashWorldState( b3GetWorldFromId( worldId ) );
+
+	if ( rec != NULL )
+	{
+		b3World_StopRecording( worldId );
+	}
+	b3DestroyWorld( worldId );
+
+	return hash;
+}
+
+// Swapping a shape's hull or mesh, or retuning one of its per-triangle materials, is a world
+// mutation like any other and has to ride the stream. The geometry pair interns into the registry
+// at the record site so replay rebuilds the same shape instead of running on the geometry it was
+// created with. The control run proves the mutations move the simulation, so the state hash gate
+// has teeth, and the read back covers each op on its own where dynamics alone would not.
+static int GeometryMutatorReplay( void )
+{
+	// Two flat floors with different triangulations, both carrying two material slots so the
+	// material index stays live across the swap.
+	b3MeshData* meshA = b3CreateGridMesh( 8, 8, 2.0f, 2, false );
+	ENSURE( meshA != NULL );
+	b3MeshData* meshB = b3CreateGridMesh( 12, 12, 1.5f, 2, false );
+	ENSURE( meshB != NULL );
+	ENSURE( meshA->triangleCount != meshB->triangleCount );
+
+	b3BoxHull swapHull = b3MakeBoxHull( 0.25f, 1.5f, 0.25f );
+	const float swapFriction = 0.95f;
+
+	uint64_t controlHash = RunGeometryMutatorScene( NULL, false, meshA, meshB, &swapHull.base, swapFriction );
+
+	b3Recording* rec = b3CreateRecording( 0 );
+	ENSURE( rec != NULL );
+	uint64_t mutatedHash = RunGeometryMutatorScene( rec, true, meshA, meshB, &swapHull.base, swapFriction );
+
+	// Without this the replay gate below could pass on a recording that never carried the ops.
+	ENSURE( mutatedHash != controlHash );
+
+	const uint8_t* data = b3Recording_GetData( rec );
+	int size = b3Recording_GetSize( rec );
+	ENSURE( size > 0 );
+
+	ENSURE( b3ValidateReplay( data, size, 1 ) );
+	ENSURE( b3ValidateReplay( data, size, 4 ) );
+
+	b3RecPlayer* player = b3CreatePlayer( data, size, 1 );
+	ENSURE( player != NULL );
+	while ( b3RecPlayer_StepFrame( player ) )
+	{
+	}
+	ENSURE( b3RecPlayer_HasDiverged( player ) == false );
+
+	// Body ordinals follow creation order in the replayed world.
+	b3BodyId replayMeshBody = b3RecPlayer_GetBodyId( player, 0 );
+	b3BodyId replayBoxBody = b3RecPlayer_GetBodyId( player, 1 );
+	ENSURE( b3Body_IsValid( replayMeshBody ) && b3Body_IsValid( replayBoxBody ) );
+
+	b3ShapeId replayMeshShape;
+	ENSURE( b3Body_GetShapes( replayMeshBody, &replayMeshShape, 1 ) == 1 );
+	b3ShapeId replayBoxShape;
+	ENSURE( b3Body_GetShapes( replayBoxBody, &replayBoxShape, 1 ) == 1 );
+
+	const b3HullData* replayHull = b3Shape_GetHull( replayBoxShape );
+	ENSURE( replayHull != NULL );
+	ENSURE( replayHull->hash == swapHull.base.hash );
+
+	b3Mesh replayMesh = b3Shape_GetMesh( replayMeshShape );
+	ENSURE( replayMesh.data != NULL );
+	ENSURE( replayMesh.data->hash == meshB->hash );
+	ENSURE( replayMesh.data->triangleCount == meshB->triangleCount );
+
+	b3SurfaceMaterial replayMaterial = b3Shape_GetMeshSurfaceMaterial( replayMeshShape, 1 );
+	ENSURE( replayMaterial.friction == swapFriction );
+
+	b3DestroyPlayer( player );
+	b3DestroyRecording( rec );
+	b3DestroyMesh( meshA );
+	b3DestroyMesh( meshB );
 	return 0;
 }
 
 int RecordingTest( void )
 {
 	RUN_SUBTEST( GeometryHashCollision );
+	RUN_SUBTEST( ShapeNameReplay );
 	RUN_SUBTEST( SphereRoundTrip );
 	RUN_SUBTEST( EmptyWorldRoundTrip );
 	RUN_SUBTEST( HullDedup );
 	RUN_SUBTEST( MidStreamNoContacts );
 	RUN_SUBTEST( MidStreamContacts );
+	RUN_SUBTEST( StagedStepCreationPose );
 	RUN_SUBTEST( ScrubBackward );
 	RUN_SUBTEST( SeekWithHull );
 	RUN_SUBTEST( DebugShapeCallbacks );
@@ -1745,6 +2081,7 @@ int RecordingTest( void )
 	RUN_SUBTEST( QueryReplay );
 	RUN_SUBTEST( TaggedQuery );
 	RUN_SUBTEST( TransformedHullRoundTrip );
+	RUN_SUBTEST( GeometryMutatorReplay );
 	RUN_SUBTEST( AllOps );
 	RUN_SUBTEST( ReservedHeaderBytes );
 	return 0;

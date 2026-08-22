@@ -8,6 +8,8 @@ use boxddd::{
 /// Plugin operation associated with a recoverable error message.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BoxdddOperation {
+    /// Initializing the process-wide Box3D Foundation for this plugin instance.
+    InitializeFoundation,
     /// Creating the native Box3D world.
     CreateWorld,
     /// Creating a native body from a [`crate::RigidBody`] entity.
@@ -37,7 +39,7 @@ pub enum BoxdddOperation {
 }
 
 /// Recoverable plugin error routed through Bevy messages.
-#[derive(Message, Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Message, Clone, Debug, Eq, PartialEq)]
 pub struct BoxdddErrorMessage {
     /// Operation that produced the error.
     pub operation: BoxdddOperation,

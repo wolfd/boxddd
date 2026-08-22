@@ -9,7 +9,9 @@ fn physics_app(settings: BoxdddPhysicsSettings) -> App {
     let mut app = App::new();
     app.add_plugins(TimePlugin)
         .insert_resource(TimeUpdateStrategy::FixedTimesteps(1))
-        .add_plugins(BoxdddPhysicsPlugin::new(settings));
+        .add_plugins(
+            BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()).with_settings(settings),
+        );
     app
 }
 
@@ -17,6 +19,13 @@ fn run_fixed_frames(app: &mut App, count: usize) {
     for _ in 0..count {
         app.update();
     }
+}
+
+fn physics_world(app: &App) -> &boxddd::World {
+    app.world()
+        .get_non_send::<BoxdddPhysicsContext>()
+        .and_then(BoxdddPhysicsContext::world)
+        .expect("physics world should be initialized")
 }
 
 fn dynamic_body(app: &mut App, position: Vec3) -> bevy_ecs::entity::Entity {
@@ -57,10 +66,10 @@ fn every_public_joint_variant_creates_expected_native_joint_type() {
         let world = context.world().unwrap();
 
         assert!(
-            joint_id.is_valid(),
+            world.contains_joint(joint_id).unwrap(),
             "{joint:?} should create a native joint"
         );
-        assert_eq!(world.try_joint_type(joint_id).unwrap(), expected_type);
+        assert_eq!(world.joint_type(joint_id).unwrap(), expected_type);
     }
 }
 
@@ -87,14 +96,14 @@ fn distance_joint_between_dynamic_bodies_creates_native_joint() {
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
 
-    assert!(joint_id.is_valid());
+    assert_eq!(world.contains_joint(joint_id), Ok(true));
     assert_eq!(context.joint_entity(joint_id), Some(joint_entity));
     assert_eq!(
-        world.try_joint_type(joint_id).unwrap(),
+        world.joint_type(joint_id).unwrap(),
         boxddd::JointType::Distance
     );
-    assert_eq!(world.try_joint_body_a(joint_id).unwrap(), body_a_id);
-    assert_eq!(world.try_joint_body_b(joint_id).unwrap(), body_b_id);
+    assert_eq!(world.joint_body_a(joint_id).unwrap(), body_a_id);
+    assert_eq!(world.joint_body_b(joint_id).unwrap(), body_b_id);
 }
 
 #[test]
@@ -118,7 +127,7 @@ fn removing_joint_component_destroys_native_joint() {
     app.world_mut().entity_mut(joint_entity).remove::<Joint>();
     run_fixed_frames(&mut app, 2);
 
-    assert!(!joint_id.is_valid());
+    assert_eq!(physics_world(&app).contains_joint(joint_id), Ok(false));
     assert!(
         app.world()
             .entity(joint_entity)
@@ -149,8 +158,9 @@ fn despawning_body_destroys_attached_joint_before_body_teardown() {
     app.world_mut().entity_mut(body_a).despawn();
     run_fixed_frames(&mut app, 2);
 
-    assert!(!joint_id.is_valid());
-    assert!(!body_a_id.is_valid());
+    let world = physics_world(&app);
+    assert_eq!(world.contains_joint(joint_id), Ok(false));
+    assert_eq!(world.contains_body(body_a_id), Ok(false));
     assert!(
         app.world()
             .entity(joint_entity)
@@ -187,7 +197,11 @@ fn invalid_joint_endpoint_emits_error_without_joint_id() {
     assert!(messages.iter().any(|message| {
         message.operation == BoxdddOperation::CreateJoint
             && message.entity == Some(joint_entity)
-            && message.error == boxddd::Error::InvalidBodyId
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "joint.target.body_b",
+                    reason: boxddd::error::InvalidValueReason::InvalidCombination,
+                }
     }));
 }
 
@@ -225,10 +239,10 @@ fn changing_joint_target_recreates_native_joint() {
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
 
-    assert!(!old_joint.is_valid());
-    assert!(new_joint.is_valid());
+    assert_eq!(world.contains_joint(old_joint), Ok(false));
+    assert_eq!(world.contains_joint(new_joint), Ok(true));
     assert_ne!(old_joint, new_joint);
-    assert_eq!(world.try_joint_body_b(new_joint).unwrap(), body_c_id);
+    assert_eq!(world.joint_body_b(new_joint).unwrap(), body_c_id);
 }
 
 #[test]
@@ -263,8 +277,8 @@ fn changing_joint_descriptor_recreates_native_joint() {
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
 
-    assert!(!old_joint.is_valid());
-    assert!(new_joint.is_valid());
+    assert_eq!(world.contains_joint(old_joint), Ok(false));
+    assert_eq!(world.contains_joint(new_joint), Ok(true));
     assert_ne!(old_joint, new_joint);
-    assert_eq!(world.try_distance_joint_length(new_joint).unwrap(), 2.0);
+    assert_eq!(world.distance_joint_length(new_joint).unwrap(), 2.0);
 }

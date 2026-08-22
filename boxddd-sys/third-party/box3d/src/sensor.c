@@ -8,6 +8,7 @@
 #include "ctz.h"
 #include "physics_world.h"
 #include "shape.h"
+#include "voxel_shape.h"
 
 #include "box3d/collision.h"
 
@@ -29,6 +30,12 @@ static bool b3OverlapSensor( b3Shape* sensorShape, b3Transform sensorTransform, 
 							 b3Transform visitorTransform )
 {
 	b3ShapeType type = sensorShape->type;
+	if ( visitorShape->type == b3_voxelShape )
+	{
+		// Voxel shapes do not have a bounded convex proxy. They can be sensors,
+		// but are not valid visitors under Box3D's convex sensor-visitor contract.
+		return false;
+	}
 
 	b3ShapeProxy proxy = b3MakeShapeProxy( visitorShape );
 
@@ -53,7 +60,7 @@ static bool b3OverlapSensor( b3Shape* sensorShape, b3Transform sensorTransform, 
 			return b3OverlapCapsule( &sensorShape->capsule, b3Transform_identity, &localProxy );
 
 		case b3_compoundShape:
-			return b3OverlapCompound( sensorShape->compound , b3Transform_identity, &localProxy );
+			return b3OverlapCompound( sensorShape->compound, b3Transform_identity, &localProxy );
 
 		case b3_heightShape:
 			return b3OverlapHeightField( sensorShape->heightField, b3Transform_identity, &localProxy );
@@ -66,6 +73,9 @@ static bool b3OverlapSensor( b3Shape* sensorShape, b3Transform sensorTransform, 
 
 		case b3_sphereShape:
 			return b3OverlapSphere( &sensorShape->sphere, b3Transform_identity, &localProxy );
+
+		case b3_voxelShape:
+			return b3OverlapVoxel( sensorShape->voxel, b3Transform_identity, &localProxy );
 
 		default:
 			B3_ASSERT( false );
@@ -107,15 +117,14 @@ static bool b3SensorQueryCallback( int proxyId, uint64_t userData, void* context
 	b3World* world = queryContext->world;
 	b3Shape* otherShape = b3Array_Get( world->shapes, shapeId );
 
-	// Mesh vs mesh is not supported
-	if ( ( otherShape->type == b3_meshShape || otherShape->type == b3_heightShape ) &&
-		 ( sensorShape->type == b3_meshShape || sensorShape->type == b3_heightShape ) )
+	// Visitors must be convex.
+	if ( b3IsConvex( otherShape->type ) == false )
 	{
 		return true;
 	}
 
 	// Are sensor events enabled on the other shape?
-	if ( otherShape->enableSensorEvents == false )
+	if ( ( otherShape->flags & b3_enableSensorEvents ) == 0 )
 	{
 		return true;
 	}
@@ -133,7 +142,7 @@ static bool b3SensorQueryCallback( int proxyId, uint64_t userData, void* context
 	}
 
 	// Custom user filter
-	if ( sensorShape->enableCustomFiltering || otherShape->enableCustomFiltering )
+	if ( ( sensorShape->flags & b3_enableCustomFiltering ) || ( otherShape->flags & b3_enableCustomFiltering ) )
 	{
 		b3CustomFilterFcn* customFilterFcn = queryContext->world->customFilterFcn;
 		if ( customFilterFcn != NULL )
@@ -207,7 +216,7 @@ static void b3SensorTask( int startIndex, int endIndex, int workerIndex, void* c
 		b3Array_Clear( sensor->hits );
 
 		b3Body* body = b3Array_Get( world->bodies, sensorShape->bodyId );
-		if ( body->setIndex == b3_disabledSet || sensorShape->enableSensorEvents == false )
+		if ( body->setIndex == b3_disabledSet || ( sensorShape->flags & b3_enableSensorEvents ) == 0 )
 		{
 			if ( sensor->overlaps1.count != 0 )
 			{

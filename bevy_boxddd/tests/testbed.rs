@@ -13,6 +13,7 @@ mod scenes;
 use std::collections::BTreeSet;
 
 use bevy::prelude::*;
+use bevy_boxddd::math::{to_boxddd_pos, to_boxddd_vec3};
 use bevy_boxddd::prelude::*;
 use bevy_ecs::message::Messages;
 use bevy_ecs::system::RunSystemOnce;
@@ -28,9 +29,8 @@ use control::{
     MIN_QUERY_MOVER_CAST_LENGTH, MIN_QUERY_RAY_LENGTH, MIN_QUERY_SHAPE_CAST_LENGTH,
     MIN_QUERY_SHAPE_CAST_RADIUS, MIN_SUB_STEPS, TestbedState,
 };
-use scenes::{
-    ALL_SCENES, MoverProbe, ParityMode, SCENE_REGISTRY, TestbedEntity, TestbedScene, spawn_scene,
-};
+use scenes::scene_catalog::ParityMode;
+use scenes::{ALL_SCENES, MoverProbe, SCENE_REGISTRY, TestbedEntity, TestbedScene, spawn_scene};
 
 const SAMPLE_CASE_TABLE_HEADER: &str =
     "| Category | Official sample | Source location | Parity mode | Target | Notes |";
@@ -47,7 +47,7 @@ fn physics_app(scene: TestbedScene) -> App {
         .init_resource::<lab::LabDiagnostics>()
         .init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<StandardMaterial>>()
-        .add_plugins(BoxdddPhysicsPlugin::new(BoxdddPhysicsSettings::default()));
+        .add_plugins(BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()));
     app
 }
 
@@ -71,6 +71,13 @@ fn run_fixed_frames(app: &mut App, count: usize) {
     for _ in 0..count {
         app.update();
     }
+}
+
+fn physics_world(app: &App) -> &boxddd::World {
+    app.world()
+        .get_non_send::<BoxdddPhysicsContext>()
+        .and_then(BoxdddPhysicsContext::world)
+        .expect("physics world should be initialized")
 }
 
 fn testbed_entities(app: &mut App) -> Vec<Entity> {
@@ -106,7 +113,7 @@ fn testbed_joint_types(app: &mut App) -> Vec<boxddd::JointType> {
     let world = context.world().unwrap();
     joint_ids
         .into_iter()
-        .map(|joint_id| world.try_joint_type(joint_id).unwrap())
+        .map(|joint_id| world.joint_type(joint_id).unwrap())
         .collect()
 }
 
@@ -509,16 +516,19 @@ fn visual_showcase_scenes_cover_representative_concepts() {
         let metadata = scene.metadata();
         assert!(!metadata.category.is_empty());
         assert!(!metadata.description.is_empty());
+        let body_ids = testbed_body_ids(&mut app);
+        let shape_ids = testbed_shape_ids(&mut app);
+        let world = physics_world(&app);
         assert!(
-            testbed_body_ids(&mut app)
+            body_ids
                 .iter()
-                .any(|body_id| body_id.is_valid()),
+                .any(|body_id| world.contains_body(*body_id).unwrap()),
             "{scene:?} should create native bodies"
         );
         assert!(
-            testbed_shape_ids(&mut app)
+            shape_ids
                 .iter()
-                .any(|shape_id| shape_id.is_valid()),
+                .any(|shape_id| world.contains_shape(*shape_id).unwrap()),
             "{scene:?} should create native shapes"
         );
     }
@@ -583,12 +593,17 @@ fn every_testbed_scene_creates_native_shapes_after_fixed_updates() {
 
         let body_ids = testbed_body_ids(&mut app);
         let shape_ids = testbed_shape_ids(&mut app);
+        let world = physics_world(&app);
         assert!(
-            body_ids.iter().any(|body_id| body_id.is_valid()),
+            body_ids
+                .iter()
+                .any(|body_id| world.contains_body(*body_id).unwrap()),
             "{scene:?} should create at least one native body"
         );
         assert!(
-            shape_ids.iter().any(|shape_id| shape_id.is_valid()),
+            shape_ids
+                .iter()
+                .any(|shape_id| world.contains_shape(*shape_id).unwrap()),
             "{scene:?} should create at least one native shape"
         );
     }
@@ -664,8 +679,17 @@ fn cylinder_hull_collider_creates_native_shape() {
 
     let body_ids = testbed_body_ids(&mut app);
     let shape_ids = testbed_shape_ids(&mut app);
-    assert!(body_ids.iter().any(|body_id| body_id.is_valid()));
-    assert!(shape_ids.iter().any(|shape_id| shape_id.is_valid()));
+    let world = physics_world(&app);
+    assert!(
+        body_ids
+            .iter()
+            .any(|body_id| world.contains_body(*body_id).unwrap())
+    );
+    assert!(
+        shape_ids
+            .iter()
+            .any(|shape_id| world.contains_shape(*shape_id).unwrap())
+    );
 }
 
 #[test]
@@ -764,8 +788,8 @@ fn material_lab_controls_update_native_target_shapes() {
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
     for shape_id in shape_ids {
-        assert!((world.try_shape_friction(shape_id).unwrap() - 1.4).abs() < 1.0e-5);
-        assert!((world.try_shape_restitution(shape_id).unwrap() - 0.25).abs() < 1.0e-5);
+        assert!((world.shape_friction(shape_id).unwrap() - 1.4).abs() < 1.0e-5);
+        assert!((world.shape_restitution(shape_id).unwrap() - 0.25).abs() < 1.0e-5);
     }
 }
 
@@ -799,11 +823,11 @@ fn body_controls_scene_applies_body_settings_and_controls() {
     for (entity, settings, _) in controlled {
         let body_id = app.world().entity(entity).get::<BoxdddBody>().unwrap().id();
         assert_eq!(
-            world.try_body_motion_locks(body_id).unwrap(),
+            world.body_motion_locks(body_id).unwrap(),
             settings.motion_locks
         );
         assert_eq!(
-            world.try_body_gravity_scale(body_id).unwrap(),
+            world.body_gravity_scale(body_id).unwrap(),
             settings.gravity_scale
         );
     }
@@ -828,8 +852,8 @@ fn continuous_collision_scene_creates_bullet_bodies() {
     let world = context.world().unwrap();
     for entity in bullet_entities {
         let body_id = app.world().entity(entity).get::<BoxdddBody>().unwrap().id();
-        assert!(world.try_body_bullet(body_id).unwrap());
-        assert_eq!(world.try_body_gravity_scale(body_id).unwrap(), 0.0);
+        assert!(world.body_bullet(body_id).unwrap());
+        assert_eq!(world.body_gravity_scale(body_id).unwrap(), 0.0);
     }
 }
 
@@ -850,15 +874,15 @@ fn character_mover_scene_probe_hits_obstacle() {
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
     let mover = boxddd::Capsule::new(
-        probe.point1.to_boxddd_vec3(),
-        probe.point2.to_boxddd_vec3(),
+        to_boxddd_vec3(probe.point1),
+        to_boxddd_vec3(probe.point2),
         probe.radius,
     );
     let fraction = world
         .cast_mover(
-            probe.origin.to_boxddd_pos(),
+            to_boxddd_pos(probe.origin),
             &mover,
-            probe.delta.to_boxddd_vec3(),
+            to_boxddd_vec3(probe.delta),
             boxddd::QueryFilter::default(),
         )
         .unwrap();
@@ -911,10 +935,19 @@ fn contact_scene_emits_physics_messages() {
             .resource_mut::<Messages<BoxdddSensorBeginMessage>>()
             .drain()
             .collect::<Vec<_>>();
-        saw_contact |= contacts.iter().any(|message| message.contact_id.is_valid());
-        saw_sensor |= sensors
-            .iter()
-            .any(|message| message.sensor_shape.is_valid() && message.visitor_shape.is_valid());
+        let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
+        saw_contact |= contacts.iter().any(|message| {
+            message.entity_a.is_some()
+                && message.entity_b.is_some()
+                && context.shape_entity(message.shape_a) == message.entity_a
+                && context.shape_entity(message.shape_b) == message.entity_b
+        });
+        saw_sensor |= sensors.iter().any(|message| {
+            message.sensor_entity.is_some()
+                && message.visitor_entity.is_some()
+                && context.shape_entity(message.sensor_shape) == message.sensor_entity
+                && context.shape_entity(message.visitor_shape) == message.visitor_entity
+        });
 
         if saw_contact && saw_sensor {
             break;
@@ -936,8 +969,9 @@ fn despawning_testbed_scene_releases_native_body_ids() {
     despawn_testbed_entities(&mut app);
     run_fixed_frames(&mut app, 2);
 
+    let world = physics_world(&app);
     for body_id in body_ids {
-        assert!(!body_id.is_valid());
+        assert_eq!(world.contains_body(body_id), Ok(false));
     }
 }
 
@@ -956,18 +990,31 @@ fn switching_testbed_scenes_releases_old_ids_and_creates_new_scene() {
     spawn_scene_once(&mut app, TestbedScene::Joints);
     run_fixed_frames(&mut app, 3);
 
+    let world = physics_world(&app);
     for body_id in old_body_ids {
-        assert!(!body_id.is_valid());
+        assert_eq!(world.contains_body(body_id), Ok(false));
     }
     for shape_id in old_shape_ids {
-        assert!(!shape_id.is_valid());
+        assert_eq!(world.contains_shape(shape_id), Ok(false));
     }
 
     let new_body_ids = testbed_body_ids(&mut app);
-    assert!(new_body_ids.iter().any(|body_id| body_id.is_valid()));
+    assert!(
+        new_body_ids
+            .iter()
+            .any(|body_id| physics_world(&app).contains_body(*body_id).unwrap())
+    );
 
     let mut joints = app
         .world_mut()
         .query_filtered::<&BoxdddJoint, With<TestbedEntity>>();
-    assert!(joints.iter(app.world()).any(|joint| joint.id().is_valid()));
+    let joint_ids = joints
+        .iter(app.world())
+        .map(|joint| joint.id())
+        .collect::<Vec<_>>();
+    assert!(
+        joint_ids
+            .iter()
+            .any(|joint_id| physics_world(&app).contains_joint(*joint_id).unwrap())
+    );
 }

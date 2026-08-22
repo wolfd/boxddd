@@ -91,8 +91,7 @@ impl Manifold {
 }
 
 /// Contact data snapshot for a native contact pair.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ContactData {
     /// Native contact id.
     pub contact_id: ContactId,
@@ -112,7 +111,12 @@ impl ContactData {
     /// `raw.manifolds` must either be null or point to `raw.manifoldCount`
     /// initialized `b3Manifold` values for the duration of this call.
     #[inline]
-    pub unsafe fn from_raw(raw: ffi::b3ContactData) -> Self {
+    pub(crate) unsafe fn from_raw_parts(
+        raw: ffi::b3ContactData,
+        contact_id: ContactId,
+        shape_id_a: ShapeId,
+        shape_id_b: ShapeId,
+    ) -> Self {
         let manifolds = if raw.manifolds.is_null() || raw.manifoldCount <= 0 {
             Vec::new()
         } else {
@@ -124,10 +128,133 @@ impl ContactData {
         };
 
         Self {
-            contact_id: ContactId::from_raw(raw.contactId),
-            shape_id_a: ShapeId::from_raw(raw.shapeIdA),
-            shape_id_b: ShapeId::from_raw(raw.shapeIdB),
+            contact_id,
+            shape_id_a,
+            shape_id_b,
             manifolds,
         }
+    }
+}
+
+/// One contact pair viewed inside a [`ContactBuffer`].
+#[derive(Copy, Clone, Debug)]
+pub struct ContactView<'a> {
+    /// Native contact id.
+    pub contact_id: ContactId,
+    /// First native shape in the contact pair.
+    pub shape_id_a: ShapeId,
+    /// Second native shape in the contact pair.
+    pub shape_id_b: ShapeId,
+    /// This contact's manifolds, borrowed from the buffer's flat storage.
+    pub manifolds: &'a [Manifold],
+}
+
+#[derive(Copy, Clone, Debug)]
+struct ContactHeader {
+    contact_id: ContactId,
+    shape_id_a: ShapeId,
+    shape_id_b: ShapeId,
+    manifold_start: u32,
+    manifold_count: u32,
+}
+
+/// Reusable allocation-stable storage for body- and world-contact queries.
+#[derive(Default)]
+pub struct ContactBuffer {
+    pub(crate) raw: Vec<ffi::b3ContactData>,
+    headers: Vec<ContactHeader>,
+    manifolds: Vec<Manifold>,
+}
+
+// SAFETY: `raw` is private FFI staging. Native pointers are copied while the
+// owning World call remains admitted, and public access reaches only owned ids
+// and manifolds. Refilling requires an exclusive buffer borrow.
+unsafe impl Send for ContactBuffer {}
+unsafe impl Sync for ContactBuffer {}
+
+impl ContactBuffer {
+    /// Creates an empty buffer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of contacts currently held.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.headers.len()
+    }
+
+    /// Whether the buffer holds no contacts.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.headers.is_empty()
+    }
+
+    /// Iterates the buffered contacts.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = ContactView<'_>> {
+        self.headers.iter().map(|header| ContactView {
+            contact_id: header.contact_id,
+            shape_id_a: header.shape_id_a,
+            shape_id_b: header.shape_id_b,
+            manifolds: &self.manifolds[header.manifold_start as usize
+                ..(header.manifold_start + header.manifold_count) as usize],
+        })
+    }
+
+    /// Returns one buffered contact by index.
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<ContactView<'_>> {
+        let header = self.headers.get(index)?;
+        Some(ContactView {
+            contact_id: header.contact_id,
+            shape_id_a: header.shape_id_a,
+            shape_id_b: header.shape_id_b,
+            manifolds: &self.manifolds[header.manifold_start as usize
+                ..(header.manifold_start + header.manifold_count) as usize],
+        })
+    }
+
+    /// Converts native staging rows into owner-scoped ids and flat manifolds.
+    ///
+    /// # Safety
+    ///
+    /// Each raw manifold pointer must remain valid for this call. `resolve`
+    /// must bind all three raw ids to the World that produced the rows.
+    pub(crate) unsafe fn convert_raw<F>(&mut self, mut resolve: F) -> Result<()>
+    where
+        F: FnMut(ffi::b3ContactData) -> Result<(ContactId, ShapeId, ShapeId)>,
+    {
+        self.headers.clear();
+        self.manifolds.clear();
+        for raw in &self.raw {
+            let (contact_id, shape_id_a, shape_id_b) = match resolve(*raw) {
+                Ok(ids) => ids,
+                Err(error) => {
+                    self.headers.clear();
+                    self.manifolds.clear();
+                    return Err(error);
+                }
+            };
+            let manifold_start = self.manifolds.len() as u32;
+            if !raw.manifolds.is_null() && raw.manifoldCount > 0 {
+                self.manifolds.extend(
+                    unsafe {
+                        std::slice::from_raw_parts(raw.manifolds, raw.manifoldCount as usize)
+                    }
+                    .iter()
+                    .copied()
+                    .map(Manifold::from_raw),
+                );
+            }
+            self.headers.push(ContactHeader {
+                contact_id,
+                shape_id_a,
+                shape_id_b,
+                manifold_start,
+                manifold_count: self.manifolds.len() as u32 - manifold_start,
+            });
+        }
+        Ok(())
     }
 }

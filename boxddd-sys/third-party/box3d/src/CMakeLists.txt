@@ -33,6 +33,7 @@ set(BOX3D_SOURCE_FILES
 	dynamic_tree.c
 	height_field.c
 	hull.c
+	hull.h
 	id_pool.c
 	id_pool.h
 	island.c
@@ -47,6 +48,8 @@ set(BOX3D_SOURCE_FILES
 	mesh_contact.c
 	motor_joint.c
 	mover.c
+	name_cache.c
+	name_cache.h
 	parallel_for.c
 	parallel_for.h
 	parallel_joint.c
@@ -55,6 +58,7 @@ set(BOX3D_SOURCE_FILES
 	platform.h
 	prismatic_joint.c
 	qsort.h
+	rapidhash.h
 	recording.c
 	recording.h
 	recording_ops.inl
@@ -83,6 +87,11 @@ set(BOX3D_SOURCE_FILES
 	triangle_manifold.c
 	types.c
 	verstable.h
+	voxel_collide.c
+	voxel_collide.h
+	voxel_manifold.c
+	voxel_shape.c
+	voxel_shape.h
 	weld_joint.c
 	wheel_joint.c
 
@@ -98,6 +107,7 @@ set(BOX3D_INCLUDE_FILES
 	../include/box3d/id.h
 	../include/box3d/math_functions.h
 	../include/box3d/types.h
+	../include/box3d/voxel.h
 )
 
 # Hide internal functions
@@ -152,7 +162,8 @@ if (BOX3D_PROFILE)
 endif()
 
 if(BOX3D_VALIDATE)
-	message(STATUS "Box3D validation ON")	
+	# Only effective when NDEBUG is undefined, see base.h
+	message(STATUS "Box3D validation ON (debug builds)")
 	target_compile_definitions(box3d PRIVATE BOX3D_VALIDATE)
 endif()
 
@@ -167,8 +178,11 @@ if (BOX3D_DOUBLE_PRECISION)
 	target_compile_definitions(box3d PUBLIC BOX3D_DOUBLE_PRECISION)
 endif()
 
+# Enable asserts in release with debug info
+target_compile_definitions(box3d PUBLIC "$<$<CONFIG:RELWITHDEBINFO>:B3_ENABLE_ASSERT>")
+
 if (MSVC)
-	message(STATUS "Box3D on MSVC")	
+	message(STATUS "Box3D on MSVC")
 	if (BUILD_SHARED_LIBS)
 		# this is needed by DLL users to import Box3D symbols
 		target_compile_definitions(box3d INTERFACE BOX3D_DLL)
@@ -176,9 +190,6 @@ if (MSVC)
 
 	# Visual Studio won't load the natvis unless it is in the project
 	target_sources(box3d PRIVATE box3d.natvis)
-
-	# Enable asserts in release with debug info
-	target_compile_definitions(box3d PUBLIC "$<$<CONFIG:RELWITHDEBINFO>:B3_ENABLE_ASSERT>")
 
 	# Warnings Wall is problematic in mixed C/C++, so using W4
 	target_compile_options(box3d PRIVATE /W4)
@@ -198,7 +209,8 @@ elseif (APPLE)
 	target_compile_options(box3d PRIVATE -Wmissing-prototypes -Wall -Wextra -pedantic)
 elseif (EMSCRIPTEN)
 	message(STATUS "Box3D on Emscripten")
-	target_compile_options(box3d PRIVATE -msimd128 -msse2)
+	# SSE2/wasm SIMD flags are set directory-wide in the top-level CMakeLists so the
+	# tests, which include simd.h, get them too.
 elseif (UNIX)
 	message(STATUS "Box3D using Unix")
 	target_compile_options(box3d PRIVATE -Wmissing-prototypes -Wall -Wextra -pedantic -Wno-unused-value)

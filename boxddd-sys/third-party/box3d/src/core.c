@@ -11,6 +11,7 @@
 #endif
 
 #include "core.h"
+#include "rapidhash.h"
 
 #include "box3d/constants.h"
 #include "box3d/math_functions.h"
@@ -51,13 +52,13 @@ float b3GetLengthUnitsPerMeter( void )
 
 static float b3_stallThreshold = FLT_MAX;
 
-void b3SetStallThreshold(float seconds)
+void b3SetStallThreshold( float seconds )
 {
 	B3_ASSERT( b3IsValidFloat( seconds ) && seconds > 0.0f );
 	b3_stallThreshold = seconds;
 }
 
-float b3GetStallThreshold(void)
+float b3GetStallThreshold( void )
 {
 	return b3_stallThreshold;
 }
@@ -115,7 +116,7 @@ void b3Log( const char* format, ... )
 
 b3Version b3GetVersion( void )
 {
-	return (b3Version){ 0, 1, 0 };
+	return (b3Version){ 0, 2, 0 };
 }
 
 bool b3IsDoublePrecision( void )
@@ -138,9 +139,6 @@ void b3SetAllocator( b3AllocFcn* allocFcn, b3FreeFcn* freeFcn )
 	b3_freeFcn = freeFcn;
 }
 
-// Use 64 byte alignment for everything to align to 64 byte cache line and works with 256bit SIMD.
-#define B3_ALIGNMENT 64
-
 void* b3Alloc( size_t size )
 {
 	if ( size == 0 )
@@ -152,38 +150,38 @@ void* b3Alloc( size_t size )
 	// todo this is not true, Box3D allocates a lot.
 	b3AtomicFetchAddInt( &b3_byteCount, (int)size );
 
-	// Allocation must be a multiple of 32 or risk a seg fault
+	// Allocation must be a multiple of B3_ALIGNMENT (required by spec).
 	// https://en.cppreference.com/w/c/memory/aligned_alloc
-	int size64 = ( ( (int)size - 1 ) | 0x3F ) + 1;
+	int alignedSize = ( ( (int)size - 1 ) | ( B3_ALIGNMENT - 1 ) ) + 1;
 
 	if ( b3_allocFcn != NULL )
 	{
-		void* ptr = b3_allocFcn( size64, B3_ALIGNMENT );
+		void* ptr = b3_allocFcn( alignedSize, B3_ALIGNMENT );
 		b3TracyCAlloc( ptr, size );
 
 		B3_ASSERT( ptr != NULL );
-		B3_ASSERT( ( (uintptr_t)ptr & 0x3F ) == 0 );
+		B3_ASSERT( ( (uintptr_t)ptr & ( B3_ALIGNMENT - 1 ) ) == 0 );
 
 		return ptr;
 	}
 
 #ifdef B3_PLATFORM_WINDOWS
-	void* ptr = _aligned_malloc( size64, B3_ALIGNMENT );
+	void* ptr = _aligned_malloc( alignedSize, B3_ALIGNMENT );
 #elif defined( B3_PLATFORM_ANDROID )
 	void* ptr = NULL;
-	if ( posix_memalign( &ptr, B3_ALIGNMENT, size64 ) != 0 )
+	if ( posix_memalign( &ptr, B3_ALIGNMENT, alignedSize ) != 0 )
 	{
 		// allocation failed, exit the application
 		exit( EXIT_FAILURE );
 	}
 #else
-	void* ptr = aligned_alloc( B3_ALIGNMENT, size64 );
+	void* ptr = aligned_alloc( B3_ALIGNMENT, alignedSize );
 #endif
 
 	b3TracyCAlloc( ptr, size );
 
 	B3_ASSERT( ptr != NULL );
-	B3_ASSERT( ( (uintptr_t)ptr & 0x3F ) == 0 );
+	B3_ASSERT( ( (uintptr_t)ptr & ( B3_ALIGNMENT - 1 ) ) == 0 );
 
 	return ptr;
 }
@@ -215,8 +213,6 @@ void b3Free( void* mem, size_t size )
 
 void* b3GrowAlloc( void* oldMem, int oldSize, int newSize )
 {
-	// todo try _aligned_realloc
-
 	B3_ASSERT( newSize > oldSize );
 	void* newMem = b3Alloc( newSize );
 	if ( oldSize > 0 )
@@ -235,133 +231,40 @@ int b3GetByteCount( void )
 void* b3AllocZeroed( size_t size )
 {
 	void* mem = b3Alloc( size );
-	memset( mem, 0, size );
+	if ( size > 0 )
+	{
+		memset( mem, 0, size );
+	}
 	return mem;
 }
 
-static FILE* b3OpenFile( const char* fileName, const char* mode )
+// Not used. Keeping around in case I need this.
+void b3StrCpy( char* dst, int size, const char* src )
 {
-	FILE* file = NULL;
+	B3_ASSERT( size > 0 );
 
+	if ( src != NULL )
+	{
 #if defined( _MSC_VER )
-	errno_t e = fopen_s( &file, fileName, mode );
-	if ( e != 0 )
-	{
-		return NULL;
-	}
+		strncpy_s( dst, size, src, size - 1 );
 #else
-	file = fopen( fileName, mode );
-	if ( file == NULL )
-	{
-		return NULL;
-	}
+		strncpy( dst, src, size - 1 );
+		dst[size - 1] = 0;
 #endif
-
-	return file;
+	}
+	else
+	{
+		memset( dst, 0, size );
+	}
 }
 
-FILE* b3_dumpFile = NULL;
-int b3_meshIndex = 0;
-
-void b3OpenDump( const char* fileName )
+uint64_t b3Hash64NonZero( const uint8_t* bytes, int n )
 {
-	B3_ASSERT( b3_dumpFile == NULL );
-	b3_dumpFile = b3OpenFile( fileName, "w" );
-}
-
-void b3Dump( const char* string, ... )
-{
-	if ( b3_dumpFile == NULL )
+	if ( n <= 0 )
 	{
-		return;
+		return 1;
 	}
 
-	va_list args;
-	va_start( args, string );
-	vfprintf( b3_dumpFile, string, args );
-	va_end( args );
-}
-
-void b3CloseDump( void )
-{
-	fclose( b3_dumpFile );
-	b3_dumpFile = NULL;
-}
-
-int b3FetchAddMeshDumpIndex( void )
-{
-	int result = b3_meshIndex;
-	b3_meshIndex += 1;
-	return result;
-}
-
-void b3WriteBinaryFile( void* data, int size, const char* fileName )
-{
-	if ( data == NULL || size <= 0 || fileName == NULL )
-	{
-		return;
-	}
-
-	FILE* file = b3OpenFile( fileName, "wb" );
-	if ( file == NULL )
-	{
-		return;
-	}
-
-	// Write binary blob; ignore partial-write errors for simplicity
-	(void)fwrite( data, 1, (size_t)size, file );
-	fclose( file );
-}
-
-void* b3ReadBinaryFile( const char* prefix, const char* fileName, int* memSize )
-{
-	*memSize = 0;
-
-	if ( prefix == NULL || fileName == NULL )
-	{
-		return NULL;
-	}
-
-	char buffer[128];
-	snprintf( buffer, sizeof( buffer ), "%s%s", prefix, fileName );
-
-	FILE* file = b3OpenFile( buffer, "rb" );
-	if ( file == NULL )
-	{
-		return NULL;
-	}
-
-	// Determine file size
-	if ( fseek( file, 0, SEEK_END ) != 0 )
-	{
-		fclose( file );
-		return NULL;
-	}
-
-	long size = ftell( file );
-	if ( size <= 0 )
-	{
-		fclose( file );
-		return NULL;
-	}
-
-	// Rewind
-	if ( fseek( file, 0, SEEK_SET ) != 0 )
-	{
-		fclose( file );
-		return NULL;
-	}
-
-	void* data = b3Alloc( (size_t)size );
-	size_t readCount = fread( data, 1, (size_t)size, file );
-	fclose( file );
-
-	if ( readCount != (size_t)size )
-	{
-		b3Free( data, (size_t)size );
-		return NULL;
-	}
-
-	*memSize = (int)size;
-	return data;
+	uint64_t h = rapidhash( bytes, n );
+	return h == 0 ? 1 : h;
 }

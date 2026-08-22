@@ -179,7 +179,7 @@ static bool b3SolveSimplex2( b3Simplex* simplex )
 	B3_ASSERT( simplex->count == 2 );
 
 	// Vertex regions
-	//float wAB[3];
+	// float wAB[3];
 
 	b3Vec3 a = vs[0].w;
 	b3Vec3 b = vs[1].w;
@@ -190,7 +190,7 @@ static bool b3SolveSimplex2( b3Simplex* simplex )
 
 	float u = b3Dot( b, ab );
 	float v = -b3Dot( a, ab );
-	//wAB[2] = divisor;
+	// wAB[2] = divisor;
 
 	// V( A )
 	if ( v <= 0.0f )
@@ -697,8 +697,8 @@ static void b3ComputeWitnessPoints( const b3Simplex* simplex, b3Vec3* vertexA, b
 		case 4:
 		{
 			// Force identical points and *zero* distance
-			b3Vec3 sum = b3Add( b3Blend2( vs[0].a, vs[0].wA, vs[1].a, vs[1].wA ),
-								b3Blend2( vs[2].a, vs[2].wA, vs[3].a, vs[3].wA ) );
+			b3Vec3 sum =
+				b3Add( b3Blend2( vs[0].a, vs[0].wA, vs[1].a, vs[1].wA ), b3Blend2( vs[2].a, vs[2].wA, vs[3].a, vs[3].wA ) );
 			*vertexA = sum;
 			*vertexB = sum;
 		}
@@ -710,7 +710,101 @@ static void b3ComputeWitnessPoints( const b3Simplex* simplex, b3Vec3* vertexA, b
 	}
 }
 
-b3DistanceOutput b3ShapeDistance( const b3DistanceInput* input, b3SimplexCache* cache, b3Simplex* simplexes, int simplexCapacity )
+static bool b3SupportDirectionIsAmbiguous( float x, float y, float z )
+{
+	float scale = b3MaxFloat( fabsf( x ), b3MaxFloat( fabsf( y ), fabsf( z ) ) );
+	float tolerance = 32.0f * FLT_EPSILON * ( 1.0f + scale );
+	return fabsf( x ) <= tolerance || fabsf( y ) <= tolerance || fabsf( z ) <= tolerance;
+}
+
+static int b3GetCellProxySupport( const b3ShapeProxy* proxy, b3Vec3 axis )
+{
+	// b3Voxel_makeCellCorners stores (-,-,-), (+,-,-), (-,+,-), ... .
+	// Rounded corner deltas can turn a mathematical axis tie into a sub-ulp
+	// projection difference. Preserve exact generic behavior for that rare
+	// case; ordinary directions retain the three-comparison fast path.
+	if ( b3SupportDirectionIsAmbiguous( axis.x, axis.y, axis.z ) )
+		return b3GetProxySupport( proxy, axis );
+	return ( axis.x > 0.0f ? 1 : 0 ) | ( axis.y > 0.0f ? 2 : 0 ) | ( axis.z > 0.0f ? 4 : 0 );
+}
+
+static int b3GetBitBoxProxySupport( const b3ShapeProxy* proxy, const b3BitBoxProxySupport* support, b3Vec3 axis )
+{
+	float dx = b3Dot( axis, support->edges[0] );
+	float dy = b3Dot( axis, support->edges[1] );
+	float dz = b3Dot( axis, support->edges[2] );
+	if ( b3SupportDirectionIsAmbiguous( dx, dy, dz ) )
+		return b3GetProxySupport( proxy, axis );
+	return ( dx > 0.0f ? 1 : 0 ) | ( dy > 0.0f ? 2 : 0 ) | ( dz > 0.0f ? 4 : 0 );
+}
+
+bool b3TryMakeBitBoxProxySupport( const b3ShapeProxy* proxy, b3BitBoxProxySupport* support )
+{
+	if ( proxy->count != 8 || proxy->radius != 0.0f )
+		return false;
+
+	support->edges[0] = b3Sub( proxy->points[1], proxy->points[0] );
+	support->edges[1] = b3Sub( proxy->points[2], proxy->points[0] );
+	support->edges[2] = b3Sub( proxy->points[4], proxy->points[0] );
+	float scale = 1.0f;
+	for ( int i = 0; i < 8; ++i )
+	{
+		b3Vec3 point = proxy->points[i];
+		scale = b3MaxFloat( scale, b3MaxFloat( fabsf( point.x ), b3MaxFloat( fabsf( point.y ), fabsf( point.z ) ) ) );
+	}
+	for ( int axis = 0; axis < 3; ++axis )
+	{
+		b3Vec3 edge = support->edges[axis];
+		scale = b3MaxFloat( scale, b3MaxFloat( fabsf( edge.x ), b3MaxFloat( fabsf( edge.y ), fabsf( edge.z ) ) ) );
+	}
+
+	static const int nonTrivialCorners[4] = { 3, 5, 6, 7 };
+	float tolerance = 64.0f * FLT_EPSILON * scale;
+	for ( int cornerIndex = 0; cornerIndex < 4; ++cornerIndex )
+	{
+		int i = nonTrivialCorners[cornerIndex];
+		b3Vec3 expected = proxy->points[0];
+		for ( int axis = 0; axis < 3; ++axis )
+		{
+			if ( ( i & ( 1 << axis ) ) != 0 )
+				expected = b3Add( expected, support->edges[axis] );
+		}
+		if ( b3LengthSquared( b3Sub( expected, proxy->points[i] ) ) > tolerance * tolerance )
+			return false;
+	}
+
+	return true;
+}
+
+static int b3GetBoxProxySupport( const b3ShapeProxy* proxy, const b3BoxProxySupport* support, b3Vec3 axis )
+{
+	float dx = b3Dot( axis, support->point0To1 );
+	float dy = b3Dot( axis, support->point0To3 );
+	float dz = b3Dot( axis, support->point0To4 );
+	if ( b3SupportDirectionIsAmbiguous( dx, dy, dz ) )
+		return b3GetProxySupport( proxy, axis );
+
+	// b3BoxHull orders each Z face as (++), (-+), (--), (+-). In an
+	// X-axis tie, the negative-X vertex comes first only on the -Y side.
+	bool negativeY = dy > 0.0f;
+	bool negativeX = dx > 0.0f || ( dx == 0.0f && negativeY );
+	int xyIndex = negativeY ? ( negativeX ? 2 : 3 ) : ( negativeX ? 1 : 0 );
+	return xyIndex + ( dz > 0.0f ? 4 : 0 );
+}
+
+b3BoxProxySupport b3MakeBoxProxySupport( const b3ShapeProxy* proxy )
+{
+	B3_ASSERT( proxy->count == 8 );
+	return (b3BoxProxySupport){
+		.point0To1 = b3Sub( proxy->points[1], proxy->points[0] ),
+		.point0To3 = b3Sub( proxy->points[3], proxy->points[0] ),
+		.point0To4 = b3Sub( proxy->points[4], proxy->points[0] ),
+	};
+}
+
+static b3DistanceOutput b3ShapeDistanceImpl( const b3DistanceInput* input, b3SimplexCache* cache, b3Simplex* simplexes,
+											 int simplexCapacity, const b3BoxProxySupport* boxSupportA, bool cellProxyA,
+											 bool cellProxyB, const b3BitBoxProxySupport* bitBoxSupportB )
 {
 	// The query runs in frame A using the relative pose of B in A.
 	b3Transform xf = input->transform;
@@ -871,8 +965,8 @@ b3DistanceOutput b3ShapeDistance( const b3DistanceInput* input, b3SimplexCache* 
 				break;
 
 			case 4:
-				closestPoint = b3Add( b3Blend2( vs[0].a, vs[0].w, vs[1].a, vs[1].w ),
-									  b3Blend2( vs[2].a, vs[2].w, vs[3].a, vs[3].w ) );
+				closestPoint =
+					b3Add( b3Blend2( vs[0].a, vs[0].w, vs[1].a, vs[1].w ), b3Blend2( vs[2].a, vs[2].w, vs[3].a, vs[3].w ) );
 				break;
 
 			default:
@@ -951,10 +1045,39 @@ b3DistanceOutput b3ShapeDistance( const b3DistanceInput* input, b3SimplexCache* 
 
 		// Get new support points
 		b3Vec3 searchDirection1 = searchDirection;
-		int indexA = b3GetProxySupport( &input->proxyA, b3Neg( searchDirection1 ) );
+		b3Vec3 supportDirectionA = b3Neg( searchDirection1 );
+		int indexA;
+		if ( boxSupportA != NULL )
+		{
+			indexA = b3GetBoxProxySupport( &input->proxyA, boxSupportA, supportDirectionA );
+			B3_VALIDATE( indexA == b3GetProxySupport( &input->proxyA, supportDirectionA ) );
+		}
+		else if ( cellProxyA )
+		{
+			indexA = b3GetCellProxySupport( &input->proxyA, supportDirectionA );
+			B3_VALIDATE( indexA == b3GetProxySupport( &input->proxyA, supportDirectionA ) );
+		}
+		else
+		{
+			indexA = b3GetProxySupport( &input->proxyA, supportDirectionA );
+		}
 		b3Vec3 supportA = input->proxyA.points[indexA];
 		b3Vec3 searchDirection2 = b3MulMV( mt, searchDirection );
-		int indexB = b3GetProxySupport( &input->proxyB, searchDirection2 );
+		int indexB;
+		if ( bitBoxSupportB != NULL )
+		{
+			indexB = b3GetBitBoxProxySupport( &input->proxyB, bitBoxSupportB, searchDirection2 );
+			B3_VALIDATE( indexB == b3GetProxySupport( &input->proxyB, searchDirection2 ) );
+		}
+		else if ( cellProxyB )
+		{
+			indexB = b3GetCellProxySupport( &input->proxyB, searchDirection2 );
+			B3_VALIDATE( indexB == b3GetProxySupport( &input->proxyB, searchDirection2 ) );
+		}
+		else
+		{
+			indexB = b3GetProxySupport( &input->proxyB, searchDirection2 );
+		}
 		b3Vec3 supportB = b3Add( b3MulMV( m, input->proxyB.points[indexB] ), xf.p );
 
 		// Save current simplex and add new vertex - this can fail if we detect cycling
@@ -1019,6 +1142,10 @@ b3DistanceOutput b3ShapeDistance( const b3DistanceInput* input, b3SimplexCache* 
 	return distanceOutput;
 }
 
+b3DistanceOutput b3ShapeDistance( const b3DistanceInput* input, b3SimplexCache* cache, b3Simplex* simplexes, int simplexCapacity )
+{
+	return b3ShapeDistanceImpl( input, cache, simplexes, simplexCapacity, NULL, false, false, NULL );
+}
 
 // Separation function:
 // f(t) = (c2 + t * dp2 - c1 - t * dp1 ) * n
@@ -1029,7 +1156,8 @@ b3DistanceOutput b3ShapeDistance( const b3DistanceInput* input, b3SimplexCache* 
 // t = [target - (c2 - c1) * n] / [(dp2 - dp1) * n]
 // t = (target - d) / [(dp2 - dp1) * n]
 
-b3CastOutput b3ShapeCast( const b3ShapeCastPairInput* input )
+static b3CastOutput b3ShapeCastImpl( const b3ShapeCastPairInput* input, bool cellProxyA,
+									 const b3BitBoxProxySupport* bitBoxSupportB )
 {
 	// Compute tolerance
 	float linearSlop = B3_LINEAR_SLOP;
@@ -1065,7 +1193,8 @@ b3CastOutput b3ShapeCast( const b3ShapeCastPairInput* input )
 	{
 		output.iterations += 1;
 
-		distanceOutput = b3ShapeDistance( &distanceInput, &cache, NULL, 0 );
+		distanceOutput =
+			b3ShapeDistanceImpl( &distanceInput, &cache, NULL, 0, NULL, cellProxyA, false, bitBoxSupportB );
 
 		if ( distanceOutput.distance < target + tolerance )
 		{
@@ -1158,6 +1287,17 @@ b3CastOutput b3ShapeCast( const b3ShapeCastPairInput* input )
 
 	// Failure!
 	return output;
+}
+
+b3CastOutput b3ShapeCast( const b3ShapeCastPairInput* input )
+{
+	return b3ShapeCastImpl( input, false, NULL );
+}
+
+b3CastOutput b3ShapeCastCellA( const b3ShapeCastPairInput* input, const b3BitBoxProxySupport* supportB )
+{
+	B3_ASSERT( input->proxyA.count == 8 );
+	return b3ShapeCastImpl( input, true, supportB );
 }
 
 b3Transform b3GetSweepTransform( const b3Sweep* sweep, float time )
@@ -1637,7 +1777,7 @@ static void b3ForceFixedAxis( b3SeparationFunction* fcn, float beta )
 }
 
 // Time of Impact using root finding
-b3TOIOutput b3TimeOfImpact( const b3TOIInput* input )
+static b3TOIOutput b3TimeOfImpactImpl( const b3TOIInput* input, const b3BoxProxySupport* boxSupportA, bool cellProxyB )
 {
 	b3TOIOutput output = { 0 };
 
@@ -1687,7 +1827,8 @@ b3TOIOutput b3TimeOfImpact( const b3TOIInput* input )
 		b3Transform xfA = b3GetSweepTransform( &sweepA, t1 );
 		b3Transform xfB = b3GetSweepTransform( &sweepB, t1 );
 		distanceInput.transform = b3InvMulTransforms( xfA, xfB );
-		b3DistanceOutput distanceOutput = b3ShapeDistance( &distanceInput, &cache, NULL, 0 );
+		b3DistanceOutput distanceOutput =
+			b3ShapeDistanceImpl( &distanceInput, &cache, NULL, 0, boxSupportA, false, cellProxyB, NULL );
 		output.distance = distanceOutput.distance;
 
 		// The distance query runs in frame A, project the witness data back to the shifted world
@@ -1738,8 +1879,7 @@ b3TOIOutput b3TimeOfImpact( const b3TOIInput* input )
 		}
 
 		// Initialize the separating axis.
-		b3SeparationFunction function =
-			b3MakeSeparationFunction( cache, &proxyA, &sweepA, &proxyB, &sweepB, worldNormal, t1 );
+		b3SeparationFunction function = b3MakeSeparationFunction( cache, &proxyA, &sweepA, &proxyB, &sweepB, worldNormal, t1 );
 
 #if B3_ENABLE_VALIDATION && 0
 		// todo this can give a negative value for diagonal edge contact on faces, typical GJK problem
@@ -1838,7 +1978,7 @@ b3TOIOutput b3TimeOfImpact( const b3TOIInput* input )
 				float s = b3EvaluateSeparation( &function, indexA, indexB, t );
 
 				// Has the separation reached tolerance?
-				if ( b3AbsFloat( s - target ) <= tolerance )
+				if ( fabsf( s - target ) <= tolerance )
 				{
 					// t2 holds a tentative value for t1
 					t2 = t;
@@ -1901,4 +2041,21 @@ b3TOIOutput b3TimeOfImpact( const b3TOIInput* input )
 	B3_ASSERT( output.fraction >= 0.0f );
 
 	return output;
+}
+
+b3TOIOutput b3TimeOfImpact( const b3TOIInput* input )
+{
+	return b3TimeOfImpactImpl( input, NULL, false );
+}
+
+b3TOIOutput b3TimeOfImpactCellB( const b3TOIInput* input )
+{
+	B3_ASSERT( input->proxyB.count == 8 );
+	return b3TimeOfImpactImpl( input, NULL, true );
+}
+
+b3TOIOutput b3TimeOfImpactBoxes( const b3TOIInput* input, const b3BoxProxySupport* supportA )
+{
+	B3_ASSERT( input->proxyA.count == 8 && input->proxyB.count == 8 );
+	return b3TimeOfImpactImpl( input, supportA, true );
 }

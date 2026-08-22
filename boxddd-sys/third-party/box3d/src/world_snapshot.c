@@ -24,6 +24,7 @@
 #include "shape.h"
 #include "solver_set.h"
 #include "table.h"
+#include "voxel_shape.h"
 
 #include "box3d/box3d.h"
 #include "box3d/collision.h"
@@ -33,7 +34,7 @@
 
 // Snapshot image magic 'BNS3' and version
 #define B3_SNAP_MAGIC 0x33534E42u
-#define B3_SNAP_VERSION 1u
+#define B3_SNAP_VERSION 3u
 
 #define B3_SNAP_FLAG_VALIDATION 0x1u
 #define B3_SNAP_FLAG_DOUBLE_PRECISION 0x2u
@@ -71,6 +72,7 @@ static uint32_t b3ComputeLayoutHash( void )
 	MIX( sizeof( b3TriangleCache ) )
 	MIX( B3_GRAPH_COLOR_COUNT )
 	MIX( b3_bodyTypeCount )
+	MIX( b3_shapeTypeCount )
 	MIX( sizeof( void* ) )
 #undef MIX
 	return h;
@@ -294,7 +296,7 @@ static void b3SerTree( b3RecBuffer* buf, const b3DynamicTree* tree )
 
 static void b3DesTree( b3SnapReader* r, b3DynamicTree* tree )
 {
-	uint64_t version;
+	uint64_t version = 0;
 	b3SnapR_Bytes( r, &version, sizeof( uint64_t ) );
 	int root = b3SnapR_I32( r );
 	int nodeCount = b3SnapR_I32( r );
@@ -359,6 +361,50 @@ static void b3DesSolverSet( b3SnapReader* r, b3SolverSet* set )
 	b3DesPodArray( r, set->jointSims );
 	b3DesPodArray( r, set->contactIndices );
 	b3DesPodArray( r, set->islandSims );
+}
+
+static void b3SerNames( b3RecBuffer* buf, const b3NameCache* cache )
+{
+	b3SnapW_I32( buf, cache->entries.count );
+	int count = cache->entries.count;
+	for ( int i = 0; i < count; ++i )
+	{
+		const b3NameEntry* entry = cache->entries.data + i;
+		b3SnapW_U32( buf, entry->hash );
+		b3SnapW_I32( buf, entry->length );
+		b3RecBufAppend( buf, entry->name, entry->length );
+	}
+}
+
+static void b3DesNames( b3SnapReader* r, b3NameCache* cache )
+{
+	int count = b3SnapR_I32( r );
+
+	if ( r->ok && b3SnapCheckCount( r, count, (int)sizeof( b3NameEntry ), 8 ) == false )
+	{
+		r->ok = false;
+	}
+
+	if ( r->ok == false )
+	{
+		return;
+	}
+
+	b3Array_Reserve( cache->entries, count );
+	for ( int i = 0; i < count; ++i )
+	{
+		uint32_t hash = b3SnapR_U32( r );
+		int length = b3SnapR_I32( r );
+		if ( r->ok == false || length < 0 || length > r->size - r->cursor )
+		{
+			r->ok = false;
+			return;
+		}
+		char* name = b3Alloc( length + 1 );
+		b3SnapR_Bytes( r, name, length );
+		name[length] = 0;
+		b3LoadName( cache, hash, name, length );
+	}
 }
 
 // Graph color: bodySet (non-overflow only) + jointSims + convexContacts + contacts
@@ -437,8 +483,8 @@ static void b3DesWorldConfig( b3SnapReader* r, b3World* world )
 
 // Shapes carry pointer fields: materials, userData, userShape, and the geometry union.
 // Serialize the POD scalars with pointers nulled, then the owned materials array, then geometry.
-// A single material lives inline in the struct image. The name is a fixed array, also inline.
-// Hull/mesh/heightField/compound are interned into the recording registry; sphere/capsule inline.
+// A single material lives inline in the struct image.
+// Hull/mesh/heightField/compound/voxel are interned into the recording registry; sphere/capsule inline.
 static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec )
 {
 	int count = world->shapes.count;
@@ -521,6 +567,13 @@ static void b3SerShapes( b3RecBuffer* buf, b3World* world, b3Recording* rec )
 				b3SnapW_U32( buf, gid );
 				break;
 			}
+			case b3_voxelShape:
+			{
+				b3SnapW_I32( buf, (int)b3_voxelShape );
+				uint32_t gid = b3RecInternVoxel( rec, src->voxel );
+				b3SnapW_U32( buf, gid );
+				break;
+			}
 			default:
 				// A live shape must have a known geometry type. Fail loudly rather than emit a shape
 				// with no geometry that would silently lose its collision on restore.
@@ -566,7 +619,10 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 	}
 
 	b3Array_Resize( world->shapes, count );
-	memset( world->shapes.data, 0, (size_t)count * sizeof( b3Shape ) );
+	if ( count > 0 )
+	{
+		memset( world->shapes.data, 0, (size_t)count * sizeof( b3Shape ) );
+	}
 
 	for ( int i = 0; i < count && r->ok; ++i )
 	{
@@ -710,6 +766,36 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 				dst->compound = (const b3CompoundData*)slot->live;
 				break;
 			}
+			case b3_voxelShape:
+			{
+				uint32_t gid = b3SnapR_U32( r );
+				if ( !r->ok )
+				{
+					break;
+				}
+				if ( rdr == NULL || gid >= (uint32_t)rdr->slotCount )
+				{
+					r->ok = false;
+					break;
+				}
+				b3RegistrySlot* slot = rdr->slots + gid;
+				if ( slot->kind != b3_geometryVoxel )
+				{
+					r->ok = false;
+					break;
+				}
+				if ( slot->live == NULL )
+				{
+					slot->live = b3Voxel_Deserialize( slot->bytes, slot->byteCount );
+				}
+				if ( slot->live == NULL )
+				{
+					r->ok = false;
+					break;
+				}
+				dst->voxel = (const b3VoxelData*)slot->live;
+				break;
+			}
 			default:
 				// Unknown geometry kind means a corrupt or unsupported snapshot. Fail the load instead
 				// of leaving a shape with no geometry.
@@ -736,8 +822,10 @@ static void b3DesShapes( b3SnapReader* r, b3World* world, b3RecReader* rdr )
 
 // Contact serialization. b3Contact is not fully POD:
 // - manifolds: heap array of b3Manifold, allocated via b3AllocateManifolds
-// - meshContact.triangleCache: heap b3Array, active when b3_simMeshContact flag is set
-// Serialize: raw struct (with nulled manifolds/triangleCache), then manifolds, then triangleCache.
+// - voxelContact.states: heap b3Array, active when b3_simVoxelContact is set
+// - meshContact.triangleCache: heap b3Array, active for non-voxel b3_simMeshContact
+// Serialize the raw struct with active pointers nulled, then the authoritative
+// manifolds and geometry-owned auxiliary array.
 static void b3SerContacts( b3RecBuffer* buf, b3World* world )
 {
 	int count = world->contacts.count;
@@ -753,7 +841,13 @@ static void b3SerContacts( b3RecBuffer* buf, b3World* world )
 		copy.manifolds = NULL;
 		copy.bodySimIndexA = B3_NULL_INDEX;
 		copy.bodySimIndexB = B3_NULL_INDEX;
-		if ( copy.flags & b3_simMeshContact )
+		if ( copy.flags & b3_simVoxelContact )
+		{
+			copy.voxelContact.states.data = NULL;
+			copy.voxelContact.states.count = 0;
+			copy.voxelContact.states.capacity = 0;
+		}
+		else if ( copy.flags & b3_simMeshContact )
 		{
 			copy.meshContact.triangleCache.data = NULL;
 			copy.meshContact.triangleCache.count = 0;
@@ -776,8 +870,19 @@ static void b3SerContacts( b3RecBuffer* buf, b3World* world )
 			b3SnapW_Bytes( buf, c->manifolds, c->manifoldCount * (int)sizeof( b3Manifold ) );
 		}
 
+		if ( c->flags & b3_simVoxelContact )
+		{
+			int stateCount = c->voxelContact.states.count;
+			B3_ASSERT( stateCount == 0 || stateCount == c->manifoldCount );
+			b3SnapW_I32( buf, stateCount );
+			if ( stateCount > 0 )
+			{
+				b3SnapW_Bytes( buf, c->voxelContact.states.data,
+							   stateCount * (int)sizeof( b3VoxelManifoldState ) );
+			}
+		}
 		// Mesh triangleCache
-		if ( c->flags & b3_simMeshContact )
+		else if ( c->flags & b3_simMeshContact )
 		{
 			b3SnapW_I32( buf, c->meshContact.triangleCache.count );
 			if ( c->meshContact.triangleCache.count > 0 )
@@ -802,7 +907,10 @@ static void b3DesContacts( b3SnapReader* r, b3World* world )
 	}
 
 	b3Array_Resize( world->contacts, count );
-	memset( world->contacts.data, 0, (size_t)count * sizeof( b3Contact ) );
+	if ( count > 0 )
+	{
+		memset( world->contacts.data, 0, (size_t)count * sizeof( b3Contact ) );
+	}
 
 	for ( int i = 0; i < count && r->ok; ++i )
 	{
@@ -811,7 +919,13 @@ static void b3DesContacts( b3SnapReader* r, b3World* world )
 		dst->manifolds = NULL;
 		dst->bodySimIndexA = B3_NULL_INDEX;
 		dst->bodySimIndexB = B3_NULL_INDEX;
-		if ( dst->flags & b3_simMeshContact )
+		if ( dst->flags & b3_simVoxelContact )
+		{
+			dst->voxelContact.states.data = NULL;
+			dst->voxelContact.states.count = 0;
+			dst->voxelContact.states.capacity = 0;
+		}
+		else if ( dst->flags & b3_simMeshContact )
 		{
 			dst->meshContact.triangleCache.data = NULL;
 			dst->meshContact.triangleCache.count = 0;
@@ -844,8 +958,33 @@ static void b3DesContacts( b3SnapReader* r, b3World* world )
 			dst->manifoldCount = 0;
 		}
 
+		if ( isLive && ( dst->flags & b3_simVoxelContact ) )
+		{
+			int stateCount = b3SnapR_I32( r );
+			if ( !r->ok )
+			{
+				break;
+			}
+			if ( stateCount != 0 && stateCount != dst->manifoldCount )
+			{
+				r->ok = false;
+				break;
+			}
+			if ( stateCount > 0 )
+			{
+				if ( b3SnapCheckCount( r, stateCount, (int)sizeof( b3VoxelManifoldState ),
+								(int)sizeof( b3VoxelManifoldState ) ) == false )
+				{
+					r->ok = false;
+					break;
+				}
+				b3Array_Resize( dst->voxelContact.states, stateCount );
+				b3SnapR_Bytes( r, dst->voxelContact.states.data,
+							   stateCount * (int)sizeof( b3VoxelManifoldState ) );
+			}
+		}
 		// Mesh triangleCache
-		if ( isLive && ( dst->flags & b3_simMeshContact ) )
+		else if ( isLive && ( dst->flags & b3_simMeshContact ) )
 		{
 			int cacheCount = b3SnapR_I32( r );
 			if ( !r->ok )
@@ -907,7 +1046,11 @@ static void b3FreeLiveSimElements( b3World* world )
 				c->manifolds = NULL;
 				c->manifoldCount = 0;
 			}
-			if ( c->flags & b3_simMeshContact )
+			if ( c->flags & b3_simVoxelContact )
+			{
+				b3Array_Destroy( c->voxelContact.states );
+			}
+			else if ( c->flags & b3_simMeshContact )
 			{
 				b3Array_Destroy( c->meshContact.triangleCache );
 			}
@@ -1048,6 +1191,8 @@ int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
 		b3SerGraphColor( buf, &graph->colors[c], c == B3_OVERFLOW_INDEX );
 	}
 
+	b3SerNames( buf, &world->names );
+
 	return buf->size - startSize;
 }
 
@@ -1123,7 +1268,10 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 	if ( r->ok )
 	{
 		b3Array_Resize( world->solverSets, setCount );
-		memset( world->solverSets.data, 0, (size_t)setCount * sizeof( b3SolverSet ) );
+		if ( setCount > 0 )
+		{
+			memset( world->solverSets.data, 0, (size_t)setCount * sizeof( b3SolverSet ) );
+		}
 		for ( int i = 0; i < setCount; ++i )
 		{
 			b3DesSolverSet( r, world->solverSets.data + i );
@@ -1205,7 +1353,10 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 		if ( r->ok )
 		{
 			b3Array_Resize( world->sensors, sensorCount );
-			memset( world->sensors.data, 0, (size_t)sensorCount * sizeof( b3Sensor ) );
+			if ( sensorCount > 0 )
+			{
+				memset( world->sensors.data, 0, (size_t)sensorCount * sizeof( b3Sensor ) );
+			}
 		}
 
 		for ( int i = 0; i < sensorCount && r->ok; ++i )
@@ -1234,7 +1385,10 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 		if ( r->ok )
 		{
 			b3Array_Resize( world->islands, islandCount );
-			memset( world->islands.data, 0, (size_t)islandCount * sizeof( b3Island ) );
+			if ( islandCount > 0 )
+			{
+				memset( world->islands.data, 0, (size_t)islandCount * sizeof( b3Island ) );
+			}
 		}
 
 		for ( int i = 0; i < islandCount && r->ok; ++i )
@@ -1282,6 +1436,8 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 			b3DesGraphColor( r, &graph->colors[c], c == B3_OVERFLOW_INDEX );
 		}
 	}
+
+	b3DesNames( r, &world->names );
 
 	return r->ok;
 }

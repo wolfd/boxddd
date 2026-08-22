@@ -5,18 +5,27 @@ use bevy_ecs::message::Messages;
 use bevy_math::Vec3;
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::components::Transform;
-use static_assertions::assert_impl_all;
+use static_assertions::{assert_impl_all, assert_not_impl_any};
+use std::process::Command;
 
 assert_impl_all!(Collider: Send, Sync);
+assert_not_impl_any!(BoxdddPhysicsPlugin: Default);
 
 const fn assert_static<T: 'static>() {}
 const _: fn() = assert_static::<Collider>;
 
 fn physics_app(settings: BoxdddPhysicsSettings) -> App {
+    physics_app_with_foundation(boxddd::FoundationConfig::default(), settings)
+}
+
+fn physics_app_with_foundation(
+    foundation_config: boxddd::FoundationConfig,
+    settings: BoxdddPhysicsSettings,
+) -> App {
     let mut app = App::new();
     app.add_plugins(TimePlugin)
         .insert_resource(TimeUpdateStrategy::FixedTimesteps(1))
-        .add_plugins(BoxdddPhysicsPlugin::new(settings));
+        .add_plugins(BoxdddPhysicsPlugin::new(foundation_config).with_settings(settings));
     app
 }
 
@@ -24,6 +33,31 @@ fn run_fixed_frames(app: &mut App, count: usize) {
     for _ in 0..count {
         app.update();
     }
+}
+
+fn physics_world(app: &App) -> &boxddd::World {
+    app.world()
+        .get_non_send::<BoxdddPhysicsContext>()
+        .and_then(BoxdddPhysicsContext::world)
+        .expect("physics world should be initialized")
+}
+
+#[test]
+fn plugin_new_uses_default_per_app_settings() {
+    let mut app = App::new();
+    app.add_plugins(TimePlugin)
+        .insert_resource(TimeUpdateStrategy::FixedTimesteps(1))
+        .add_plugins(BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()));
+
+    let settings = app.world().resource::<BoxdddPhysicsSettings>();
+    let expected = BoxdddPhysicsSettings::default();
+    assert_eq!(settings.gravity, expected.gravity);
+    assert_eq!(settings.sub_step_count, expected.sub_step_count);
+    assert_eq!(
+        settings.fixed_timestep_seconds,
+        expected.fixed_timestep_seconds
+    );
+    assert_eq!(settings.error_policy, expected.error_policy);
 }
 
 #[test]
@@ -41,7 +75,8 @@ fn plugin_inserts_non_send_context_and_uses_settings() {
     let gravity = context
         .world()
         .expect("world should be initialized")
-        .gravity();
+        .gravity()
+        .unwrap();
 
     assert_eq!(gravity, boxddd::Vec3::new(0.0, -3.0, 0.0));
 }
@@ -61,7 +96,11 @@ fn invalid_world_settings_emit_error_message() {
         .collect::<Vec<_>>();
     assert!(messages.iter().any(|message| {
         message.operation == BoxdddOperation::CreateWorld
-            && message.error == boxddd::Error::InvalidArgument
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "world.gravity",
+                    reason: boxddd::error::InvalidValueReason::NonFinite,
+                }
     }));
 
     let context = app
@@ -86,7 +125,11 @@ fn invalid_fixed_timestep_settings_emit_error_message() {
         .collect::<Vec<_>>();
     assert!(messages.iter().any(|message| {
         message.operation == BoxdddOperation::ConfigureFixedTimestep
-            && message.error == boxddd::Error::InvalidArgument
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "physics.fixed_timestep_seconds",
+                    reason: boxddd::error::InvalidValueReason::OutOfRange,
+                }
     }));
 
     let context = app
@@ -94,6 +137,29 @@ fn invalid_fixed_timestep_settings_emit_error_message() {
         .get_non_send::<BoxdddPhysicsContext>()
         .expect("valid world context should still be inserted");
     assert!(context.world().is_some());
+}
+
+#[test]
+fn nonfinite_fixed_timestep_emits_typed_error_message() {
+    let settings = BoxdddPhysicsSettings {
+        fixed_timestep_seconds: Some(f64::NAN),
+        ..Default::default()
+    };
+    let mut app = physics_app(settings);
+
+    let messages = app
+        .world_mut()
+        .resource_mut::<Messages<BoxdddErrorMessage>>()
+        .drain()
+        .collect::<Vec<_>>();
+    assert!(messages.iter().any(|message| {
+        message.operation == BoxdddOperation::ConfigureFixedTimestep
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "physics.fixed_timestep_seconds",
+                    reason: boxddd::error::InvalidValueReason::NonFinite,
+                }
+    }));
 }
 
 #[test]
@@ -120,13 +186,14 @@ fn bodies_and_simple_colliders_are_created_and_cleaned_up() {
         .entity(entity)
         .get::<BoxdddShape>()
         .expect("plugin should insert BoxdddShape");
-    assert!(body.id().is_valid());
-    assert!(shape.id().is_valid());
+    let world = physics_world(&app);
+    assert_eq!(world.contains_body(body.id()), Ok(true));
+    assert_eq!(world.contains_shape(shape.id()), Ok(true));
 
     app.world_mut().entity_mut(entity).despawn();
     run_fixed_frames(&mut app, 2);
 
-    assert!(!body.id().is_valid());
+    assert_eq!(physics_world(&app).contains_body(body.id()), Ok(false));
 }
 
 #[test]
@@ -155,12 +222,12 @@ fn body_settings_create_and_update_native_body_properties() {
     {
         let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
         let world = context.world().unwrap();
-        assert_eq!(world.try_body_gravity_scale(body_id).unwrap(), 0.25);
-        assert_eq!(world.try_body_linear_damping(body_id).unwrap(), 0.2);
-        assert_eq!(world.try_body_angular_damping(body_id).unwrap(), 0.3);
-        assert!(!world.try_body_sleep_enabled(body_id).unwrap());
-        assert!(world.try_body_bullet(body_id).unwrap());
-        assert_eq!(world.try_body_motion_locks(body_id).unwrap(), initial_locks);
+        assert_eq!(world.body_gravity_scale(body_id).unwrap(), 0.25);
+        assert_eq!(world.body_linear_damping(body_id).unwrap(), 0.2);
+        assert_eq!(world.body_angular_damping(body_id).unwrap(), 0.3);
+        assert!(!world.body_sleep_enabled(body_id).unwrap());
+        assert!(world.body_bullet(body_id).unwrap());
+        assert_eq!(world.body_motion_locks(body_id).unwrap(), initial_locks);
     }
 
     let updated_locks = boxddd::MotionLocks::new(true, false, true, false, true, false);
@@ -176,12 +243,12 @@ fn body_settings_create_and_update_native_body_properties() {
 
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
-    assert_eq!(world.try_body_gravity_scale(body_id).unwrap(), 1.5);
-    assert_eq!(world.try_body_linear_damping(body_id).unwrap(), 0.4);
-    assert_eq!(world.try_body_angular_damping(body_id).unwrap(), 0.6);
-    assert!(world.try_body_sleep_enabled(body_id).unwrap());
-    assert!(!world.try_body_bullet(body_id).unwrap());
-    assert_eq!(world.try_body_motion_locks(body_id).unwrap(), updated_locks);
+    assert_eq!(world.body_gravity_scale(body_id).unwrap(), 1.5);
+    assert_eq!(world.body_linear_damping(body_id).unwrap(), 0.4);
+    assert_eq!(world.body_angular_damping(body_id).unwrap(), 0.6);
+    assert!(world.body_sleep_enabled(body_id).unwrap());
+    assert!(!world.body_bullet(body_id).unwrap());
+    assert_eq!(world.body_motion_locks(body_id).unwrap(), updated_locks);
 }
 
 #[test]
@@ -211,7 +278,11 @@ fn invalid_body_settings_emit_error_without_creating_body() {
     assert!(messages.iter().any(|message| {
         message.operation == BoxdddOperation::CreateBody
             && message.entity == Some(entity)
-            && message.error == boxddd::Error::InvalidArgument
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "body_settings.gravity_scale",
+                    reason: boxddd::error::InvalidValueReason::NonFinite,
+                }
     }));
 }
 
@@ -246,10 +317,11 @@ fn removing_body_component_recreates_body_and_shape_without_stale_ids() {
         .get::<BoxdddShape>()
         .expect("shape should be recreated against the replacement body");
 
-    assert!(!old_body.id().is_valid());
-    assert!(!old_shape.id().is_valid());
-    assert!(new_body.id().is_valid());
-    assert!(new_shape.id().is_valid());
+    let world = physics_world(&app);
+    assert_eq!(world.contains_body(old_body.id()), Ok(false));
+    assert_eq!(world.contains_shape(old_shape.id()), Ok(false));
+    assert_eq!(world.contains_body(new_body.id()), Ok(true));
+    assert_eq!(world.contains_shape(new_shape.id()), Ok(true));
 }
 
 #[test]
@@ -272,8 +344,9 @@ fn removing_collider_component_destroys_shape_but_keeps_body() {
     app.world_mut().entity_mut(entity).remove::<Collider>();
     run_fixed_frames(&mut app, 2);
 
-    assert!(body.id().is_valid());
-    assert!(!shape.id().is_valid());
+    let world = physics_world(&app);
+    assert_eq!(world.contains_body(body.id()), Ok(true));
+    assert_eq!(world.contains_shape(shape.id()), Ok(false));
     assert!(app.world().entity(entity).get::<BoxdddBody>().is_some());
     assert!(app.world().entity(entity).get::<BoxdddShape>().is_none());
 }
@@ -303,7 +376,36 @@ fn invalid_collider_dimensions_emit_error_message() {
     assert!(messages.iter().any(|message| {
         message.operation == BoxdddOperation::CreateShape
             && message.entity == Some(entity)
-            && message.error == boxddd::Error::InvalidArgument
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "collider.sphere.radius",
+                    reason: boxddd::error::InvalidValueReason::OutOfRange,
+                }
+    }));
+}
+
+#[test]
+fn orphan_collider_emits_error_without_creating_shape() {
+    let mut app = physics_app(BoxdddPhysicsSettings::default());
+    let entity = app.world_mut().spawn(Collider::sphere(0.5)).id();
+
+    run_fixed_frames(&mut app, 2);
+
+    assert!(app.world().entity(entity).get::<BoxdddShape>().is_none());
+
+    let messages = app
+        .world_mut()
+        .resource_mut::<Messages<BoxdddErrorMessage>>()
+        .drain()
+        .collect::<Vec<_>>();
+    assert!(messages.iter().any(|message| {
+        message.operation == BoxdddOperation::CreateShape
+            && message.entity == Some(entity)
+            && message.error
+                == boxddd::Error::InvalidValue {
+                    context: "collider.parent",
+                    reason: boxddd::error::InvalidValueReason::InvalidCombination,
+                }
     }));
 }
 
@@ -334,15 +436,11 @@ fn child_colliders_create_multiple_shapes_for_one_body() {
     assert_eq!(context.shape_entity(left_shape), Some(left));
     assert_eq!(context.shape_entity(right_shape), Some(right));
     assert_eq!(
-        context.world().unwrap().try_shape_body(left_shape).unwrap(),
+        context.world().unwrap().shape_body(left_shape).unwrap(),
         body_id
     );
     assert_eq!(
-        context
-            .world()
-            .unwrap()
-            .try_shape_body(right_shape)
-            .unwrap(),
+        context.world().unwrap().shape_body(right_shape).unwrap(),
         body_id
     );
 }
@@ -403,8 +501,9 @@ fn removing_one_child_collider_only_destroys_that_shape() {
     app.world_mut().entity_mut(left).despawn();
     run_fixed_frames(&mut app, 2);
 
-    assert!(!left_shape.is_valid());
-    assert!(right_shape.is_valid());
+    let world = physics_world(&app);
+    assert_eq!(world.contains_shape(left_shape), Ok(false));
+    assert_eq!(world.contains_shape(right_shape), Ok(true));
     assert!(app.world().entity(right).get::<BoxdddShape>().is_some());
 }
 
@@ -433,9 +532,10 @@ fn despawning_body_destroys_child_collider_shapes() {
     app.world_mut().entity_mut(body).despawn();
     run_fixed_frames(&mut app, 2);
 
-    assert!(!body_id.is_valid());
-    assert!(!left_shape.is_valid());
-    assert!(!right_shape.is_valid());
+    let world = physics_world(&app);
+    assert_eq!(world.contains_body(body_id), Ok(false));
+    assert_eq!(world.contains_shape(left_shape), Ok(false));
+    assert_eq!(world.contains_shape(right_shape), Ok(false));
 }
 
 #[test]
@@ -461,7 +561,7 @@ fn readding_child_collider_component_replaces_shape_id() {
 
     app.world_mut().entity_mut(collider).remove::<Collider>();
     run_fixed_frames(&mut app, 2);
-    assert!(!old_shape.is_valid());
+    assert_eq!(physics_world(&app).contains_shape(old_shape), Ok(false));
     assert!(app.world().entity(collider).get::<BoxdddShape>().is_none());
 
     app.world_mut()
@@ -475,7 +575,7 @@ fn readding_child_collider_component_replaces_shape_id() {
         .get::<BoxdddShape>()
         .unwrap()
         .id();
-    assert!(new_shape.is_valid());
+    assert_eq!(physics_world(&app).contains_shape(new_shape), Ok(true));
     assert_ne!(old_shape, new_shape);
 }
 
@@ -513,11 +613,11 @@ fn changing_collider_descriptor_recreates_native_shape() {
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
 
-    assert!(!old_shape.is_valid());
-    assert!(new_shape.is_valid());
+    assert_eq!(world.contains_shape(old_shape), Ok(false));
+    assert_eq!(world.contains_shape(new_shape), Ok(true));
     assert_ne!(old_shape, new_shape);
     assert_eq!(
-        world.try_shape_type(new_shape).unwrap(),
+        world.shape_type(new_shape).unwrap(),
         boxddd::ShapeType::Capsule
     );
 }
@@ -570,12 +670,12 @@ fn changing_physics_material_recreates_native_shape() {
         .id();
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
     let world = context.world().unwrap();
-    let filter = world.try_shape_filter(new_shape).unwrap();
+    let filter = world.shape_filter(new_shape).unwrap();
 
-    assert!(!old_shape.is_valid());
-    assert!(new_shape.is_valid());
+    assert_eq!(world.contains_shape(old_shape), Ok(false));
+    assert_eq!(world.contains_shape(new_shape), Ok(true));
     assert_ne!(old_shape, new_shape);
-    assert!(world.try_shape_sensor(new_shape).unwrap());
+    assert!(world.shape_sensor(new_shape).unwrap());
     assert_eq!(filter.category_bits, 0b100);
     assert_eq!(filter.mask_bits, 0b1000);
 }
@@ -623,13 +723,11 @@ fn reparenting_child_collider_recreates_shape_on_new_body() {
         .unwrap()
         .id();
     let context = app.world().get_non_send::<BoxdddPhysicsContext>().unwrap();
+    let world = context.world().unwrap();
 
-    assert!(!old_shape.is_valid());
-    assert!(new_shape.is_valid());
-    assert_eq!(
-        context.world().unwrap().try_shape_body(new_shape).unwrap(),
-        second_body_id
-    );
+    assert_eq!(world.contains_shape(old_shape), Ok(false));
+    assert_eq!(world.contains_shape(new_shape), Ok(true));
+    assert_eq!(world.shape_body(new_shape).unwrap(), second_body_id);
 }
 
 #[test]
@@ -707,9 +805,124 @@ fn advanced_colliders_on_dynamic_bodies_emit_errors() {
         .iter()
         .filter(|message| {
             message.operation == BoxdddOperation::CreateShape
-                && message.error == boxddd::Error::InvalidArgument
+                && message.error
+                    == boxddd::Error::InvalidValue {
+                        context: "collider.body_type",
+                        reason: boxddd::error::InvalidValueReason::InvalidCombination,
+                    }
         })
         .count();
 
     assert_eq!(create_shape_errors, static_only_descriptors.len());
+}
+
+const FOUNDATION_SUBPROCESS_ENV: &str = "BOXDDD_BEVY_FOUNDATION_CASE";
+
+#[test]
+fn plugin_foundation_lifecycle_subprocess() {
+    let Some(case) = std::env::var_os(FOUNDATION_SUBPROCESS_ENV) else {
+        for case in ["same-config", "conflict"] {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "plugin_foundation_lifecycle_subprocess",
+                    "--nocapture",
+                ])
+                .env(FOUNDATION_SUBPROCESS_ENV, case)
+                .status()
+                .unwrap();
+            assert!(status.success(), "Foundation subprocess case {case} failed");
+        }
+        return;
+    };
+
+    match case.to_string_lossy().as_ref() {
+        "same-config" => {
+            let config = boxddd::FoundationConfig {
+                length_units_per_meter: 2.0,
+                stall_threshold: boxddd::StallThreshold::Seconds(0.25),
+            };
+            let first = physics_app_with_foundation(config, BoxdddPhysicsSettings::default());
+            let second = physics_app_with_foundation(config, BoxdddPhysicsSettings::default());
+            let first_context = first
+                .world()
+                .get_non_send::<BoxdddPhysicsContext>()
+                .unwrap();
+            let second_context = second
+                .world()
+                .get_non_send::<BoxdddPhysicsContext>()
+                .unwrap();
+            let first_foundation = first_context.foundation().unwrap();
+            assert!(std::ptr::eq(
+                first_foundation,
+                second_context.foundation().unwrap()
+            ));
+            assert_eq!(first_foundation.config(), config);
+            assert_eq!(
+                first_context
+                    .world()
+                    .unwrap()
+                    .restitution_threshold()
+                    .unwrap(),
+                2.0
+            );
+            assert_eq!(first_foundation.activity().ordinary_owners, 2);
+            drop(second);
+            assert_eq!(first_foundation.activity().ordinary_owners, 1);
+            drop(first);
+            assert_eq!(first_foundation.activity().ordinary_owners, 0);
+        }
+        "conflict" => {
+            let custom = boxddd::FoundationConfig {
+                length_units_per_meter: 2.0,
+                stall_threshold: boxddd::StallThreshold::Seconds(0.25),
+            };
+            let first = physics_app_with_foundation(custom, BoxdddPhysicsSettings::default());
+            let first_context = first
+                .world()
+                .get_non_send::<BoxdddPhysicsContext>()
+                .unwrap();
+            let foundation = first_context.foundation().unwrap();
+            assert_eq!(foundation.config(), custom);
+
+            let mut conflicting = physics_app_with_foundation(
+                boxddd::FoundationConfig::default(),
+                BoxdddPhysicsSettings::default(),
+            );
+            assert!(
+                conflicting
+                    .world()
+                    .get_non_send::<BoxdddPhysicsContext>()
+                    .unwrap()
+                    .world()
+                    .is_none()
+            );
+            let errors = conflicting
+                .world_mut()
+                .resource_mut::<Messages<BoxdddErrorMessage>>()
+                .drain()
+                .collect::<Vec<_>>();
+            assert!(errors.iter().any(|message| {
+                message.operation == BoxdddOperation::InitializeFoundation
+                    && message.error == boxddd::Error::FoundationConflict
+            }));
+            assert_eq!(foundation.activity().ordinary_owners, 1);
+
+            drop(first);
+            let mut after_drop = physics_app_with_foundation(
+                boxddd::FoundationConfig::default(),
+                BoxdddPhysicsSettings::default(),
+            );
+            let errors = after_drop
+                .world_mut()
+                .resource_mut::<Messages<BoxdddErrorMessage>>()
+                .drain()
+                .collect::<Vec<_>>();
+            assert!(errors.iter().any(|message| {
+                message.operation == BoxdddOperation::InitializeFoundation
+                    && message.error == boxddd::Error::FoundationConflict
+            }));
+        }
+        other => panic!("unknown Foundation subprocess case: {other}"),
+    }
 }

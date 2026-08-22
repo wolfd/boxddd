@@ -8,6 +8,7 @@
 #include "id.h"
 #include "math_functions.h"
 #include "types.h"
+#include "voxel.h"
 
 #include <stdbool.h>
 
@@ -67,6 +68,24 @@ B3_API b3SensorEvents b3World_GetSensorEvents( b3WorldId worldId );
 
 /// Get contact events for this current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3ContactEvents b3World_GetContactEvents( b3WorldId worldId );
+
+/// Get a conservative capacity for all current touching contacts in the world.
+B3_API int b3World_GetContactCapacity( b3WorldId worldId );
+
+/// Copy all current touching contacts in the world, visiting each pair once.
+B3_API int b3World_GetContactData( b3WorldId worldId, b3ContactData* contactData, int capacity );
+
+/// Get a conservative capacity for the per-body sleep data in the world.
+B3_API int b3World_GetBodySleepCapacity( b3WorldId worldId );
+
+/// Copy the current sleep state of every enabled body. Read-only observation data.
+B3_API int b3World_GetBodySleepData( b3WorldId worldId, b3BodySleepData* sleepData, int capacity );
+
+/// Get a conservative capacity for the island census data in the world.
+B3_API int b3World_GetIslandCensusCapacity( b3WorldId worldId );
+
+/// Copy a sleep census of every island (awake or sleeping). Read-only observation data.
+B3_API int b3World_GetIslandCensusData( b3WorldId worldId, b3IslandCensus* censusData, int capacity );
 
 /// Get the joint events for the current time step. The event data is transient. Do not store a reference to this data.
 B3_API b3JointEvents b3World_GetJointEvents( b3WorldId worldId );
@@ -245,18 +264,41 @@ B3_API void b3World_RebuildStaticTree( b3WorldId worldId );
 /// This is for internal testing
 B3_API void b3World_EnableSpeculative( b3WorldId worldId, bool flag );
 
-/// Dump world to a text file. Saves only awake bodies and associated static bodies.
-/// Meshes are saved to binary b3m files.
-B3_API void b3World_DumpAwake( b3WorldId worldId );
-
-/// Dump world to a text file. Meshes are saved to binary b3m files.
-B3_API void b3World_Dump( b3WorldId worldId );
-
 /**
  * @defgroup recording Recording
  * @brief Record and replay world state for debugging.
  * @{
  */
+
+/**
+ * @defgroup savestate Save state
+ * Standalone world save/restore, independent of the recording/replay system.
+ *
+ * These wrap the same serializer the replay player uses for its keyframes, so a
+ * restored world reproduces the original bit-for-bit — including the contact
+ * manifolds and their warm-start impulses, the sleep timers, the island and
+ * constraint-graph structure, and the broadphase, none of which can be rebuilt
+ * from body transforms alone.
+ *
+ * The blob is self-contained: it carries the interned shape geometry alongside
+ * the world image, so a save and its load need share no other state.
+ * @{
+ */
+
+/// Serialize `worldId` into a freshly allocated buffer. Returns NULL on failure.
+/// The caller owns the result and must release it with b3FreeSaveState.
+/// `size` receives the byte count.
+B3_API uint8_t* b3World_SaveState( b3WorldId worldId, int* size );
+
+/// Release a buffer returned by b3World_SaveState.
+B3_API void b3FreeSaveState( uint8_t* data, int size );
+
+/// Overwrite `worldId` with the state in `[data, size)`. The target must be a
+/// world created with the same definition (a "shell"); its existing contents are
+/// discarded. Returns false on a corrupt or incompatible image.
+B3_API bool b3World_LoadState( b3WorldId worldId, const uint8_t* data, int size );
+
+/** @} */
 
 /// Opaque recording handle. Create with b3CreateRecording, destroy with b3DestroyRecording.
 typedef struct b3Recording b3Recording;
@@ -315,12 +357,12 @@ typedef struct b3RecPlayer b3RecPlayer;
 /// Summary of a recording, read once at open so a viewer can frame and label it.
 typedef struct b3RecPlayerInfo
 {
-	int    frameCount;   // total recorded steps
-	int    workerCount;  // worker count requested for the replay world
-	float  timeStep;     // dt of the recorded steps
-	int    subStepCount; // recorded sub-steps
-	float  lengthScale;  // length units per meter in effect when recorded
-	b3AABB bounds;       // accumulated world bounds over the recording, zero-extent if unavailable
+	int frameCount;	   // total recorded steps
+	int workerCount;   // worker count requested for the replay world
+	float timeStep;	   // dt of the recorded steps
+	int subStepCount;  // recorded sub-steps
+	float lengthScale; // length units per meter in effect when recorded
+	b3AABB bounds;	   // accumulated world bounds over the recording, zero-extent if unavailable
 } b3RecPlayerInfo;
 
 /// Create a player over a recording. Owns a private copy of the bytes.
@@ -330,14 +372,19 @@ typedef struct b3RecPlayerInfo
 /// Replaying at a different count re-partitions the constraint graph, so the StateHash check
 /// becomes a cross-thread determinism test. Adjustable later with b3RecPlayer_SetWorkerCount.
 /// @return a new player, or NULL on bad header or deserialization failure
-B3_API b3RecPlayer* b3RecPlayer_Create( const void* data, int size, int workerCount );
+B3_API b3RecPlayer* b3CreatePlayer( const void* data, int size, int workerCount );
 
 /// Destroy the player and free all memory. Restores the previous global length scale.
-B3_API void b3RecPlayer_Destroy( b3RecPlayer* player );
+B3_API void b3DestroyPlayer( b3RecPlayer* player );
 
-/// Advance one frame: dispatch ops until the next Step completes.
+/// Advance one frame. dispatch ops until the next Step completes.
 /// @return true when a frame was stepped, false at end-of-recording
 B3_API bool b3RecPlayer_StepFrame( b3RecPlayer* player );
+
+/// Sub-step one frame. This will sub-step and return immediately after body creation.
+/// The next call will execute the time step. This allows bodies to be rendered
+/// at the creation pose.
+B3_API void b3RecPlayer_SubStepFrame( b3RecPlayer* player );
 
 /// Rewind to frame 0 (in-place restore so the world id stays stable).
 B3_API void b3RecPlayer_Restart( b3RecPlayer* player );
@@ -357,6 +404,9 @@ B3_API int b3RecPlayer_GetFrameCount( const b3RecPlayer* player );
 
 /// @return true when the op stream is exhausted
 B3_API bool b3RecPlayer_IsAtEnd( const b3RecPlayer* player );
+
+/// @return true when the op stream is paused between body creation and world step.
+B3_API bool b3RecPlayer_IsAtPreStep( const b3RecPlayer* player );
 
 /// @return true when any StateHash mismatch has been detected
 B3_API bool b3RecPlayer_HasDiverged( const b3RecPlayer* player );
@@ -405,14 +455,14 @@ B3_API b3BodyId b3RecPlayer_GetBodyId( const b3RecPlayer* player, int index );
 /// Wire host debug-shape callbacks into the player's replay world so a renderer can build
 /// per-shape draw resources (the 3D sample needs this or the replay world draws nothing).
 /// Rebuilds the current world under the new callbacks and rewinds to frame 0, so call it
-/// once right after b3RecPlayer_Create and re-read the world id afterward. The callbacks
+/// once right after b3CreatePlayer and re-read the world id afterward. The callbacks
 /// persist across Restart and backward seeks, which recreate the world internally.
 /// @param player the player to configure
 /// @param createDebugShape called when a replayed shape is added; returns a user draw handle
 /// @param destroyDebugShape called when a replayed shape is removed; may be NULL
 /// @param context user context passed to both callbacks
 B3_API void b3RecPlayer_SetDebugShapeCallbacks( b3RecPlayer* player, b3CreateDebugShapeCallback* createDebugShape,
-                                                b3DestroyDebugShapeCallback* destroyDebugShape, void* context );
+												b3DestroyDebugShapeCallback* destroyDebugShape, void* context );
 
 /// Draw the spatial queries recorded during the most recently replayed frame, layered on top of the
 /// world. Call after b3World_Draw. NULL draw function pointers are skipped.
@@ -438,23 +488,23 @@ typedef enum b3RecQueryType
 typedef struct b3RecQueryInfo
 {
 	b3RecQueryType type;
-	b3QueryFilter  filter;
-	b3AABB         aabb;        // world-space bounds of the query, swept for casts
-	b3Pos          origin;      // query origin (zero for overlap AABB)
-	b3Vec3         translation; // ray and cast translation
-	int            hitCount;    // number of recorded results
-	uint64_t       key;         // identity key, the hash of (id, name), 0 if untagged
-	uint64_t       id;          // query id, 0 if none
-	const char*    name;        // query label, NULL if none
+	b3QueryFilter filter;
+	b3AABB aabb;		// world-space bounds of the query, swept for casts
+	b3Pos origin;		// query origin (zero for overlap AABB)
+	b3Vec3 translation; // ray and cast translation
+	int hitCount;		// number of recorded results
+	uint64_t key;		// identity key, the hash of (id, name), 0 if untagged
+	uint64_t id;		// query id, 0 if none
+	const char* name;	// query label, NULL if none
 } b3RecQueryInfo;
 
 /// One result of a recorded spatial query.
 typedef struct b3RecQueryHit
 {
 	b3ShapeId shape;
-	b3Pos     point;
-	b3Vec3    normal;
-	float     fraction;
+	b3Pos point;
+	b3Vec3 normal;
+	float fraction;
 } b3RecQueryHit;
 
 /// @return the number of spatial queries recorded for the most recently replayed frame
@@ -500,10 +550,10 @@ B3_API b3BodyType b3Body_GetType( b3BodyId bodyId );
 /// properties regardless of the automatic mass setting.
 B3_API void b3Body_SetType( b3BodyId bodyId, b3BodyType type );
 
-/// Set the body name. Up to B3_BODY_NAME_LENGTH characters including null termination.
+/// Set the body name.
 B3_API void b3Body_SetName( b3BodyId bodyId, const char* name );
 
-/// Get the body name.
+/// Get the body name. Returns an empty string if the name isn't set.
 B3_API const char* b3Body_GetName( b3BodyId bodyId );
 
 /// Set the user data for a body
@@ -523,31 +573,31 @@ B3_API b3WorldTransform b3Body_GetTransform( b3BodyId bodyId );
 
 /// Set the world transform of a body. This acts as a teleport and is fairly expensive.
 /// @note Generally you should create a body with the intended transform.
-/// @see b3BodyDef::position and b3BodyDef::rotation
+/// @see b3BodyDef::position and b3BodyDef::rotation.
 B3_API void b3Body_SetTransform( b3BodyId bodyId, b3Pos position, b3Quat rotation );
 
-/// Get a local point on a body given a world point
+/// Get a local point on a body given a world point.
 B3_API b3Vec3 b3Body_GetLocalPoint( b3BodyId bodyId, b3Pos worldPoint );
 
-/// Get a world point on a body given a local point
+/// Get a world point on a body given a local point.
 B3_API b3Pos b3Body_GetWorldPoint( b3BodyId bodyId, b3Vec3 localPoint );
 
-/// Get a local vector on a body given a world vector
+/// Get a local vector on a body given a world vector.
 B3_API b3Vec3 b3Body_GetLocalVector( b3BodyId bodyId, b3Vec3 worldVector );
 
-/// Get a world vector on a body given a local vector
+/// Get a world vector on a body given a local vector.
 B3_API b3Vec3 b3Body_GetWorldVector( b3BodyId bodyId, b3Vec3 localVector );
 
 /// Get the linear velocity of a body's center of mass. Usually in meters per second.
 B3_API b3Vec3 b3Body_GetLinearVelocity( b3BodyId bodyId );
 
-/// Get the angular velocity of a body in radians per second
+/// Get the angular velocity of a body in radians per second.
 B3_API b3Vec3 b3Body_GetAngularVelocity( b3BodyId bodyId );
 
-/// Set the linear velocity of a body. Usually in meters per second.
+/// Set the linear velocity of a body at the center of mass. Usually in meters per second.
 B3_API void b3Body_SetLinearVelocity( b3BodyId bodyId, b3Vec3 linearVelocity );
 
-/// Set the angular velocity of a body in radians per second
+/// Set the angular velocity of a body in radians per second.
 B3_API void b3Body_SetAngularVelocity( b3BodyId bodyId, b3Vec3 angularVelocity );
 
 /// Set the velocity to reach the given transform after a given time step.
@@ -628,10 +678,10 @@ B3_API float b3Body_GetInverseMass( b3BodyId bodyId );
 B3_API b3Matrix3 b3Body_GetWorldInverseRotationalInertia( b3BodyId bodyId );
 
 /// Get the center of mass position of the body in local space
-B3_API b3Vec3 b3Body_GetLocalCenterOfMass( b3BodyId bodyId );
+B3_API b3Vec3 b3Body_GetLocalCenter( b3BodyId bodyId );
 
 /// Get the center of mass position of the body in world space
-B3_API b3Pos b3Body_GetWorldCenterOfMass( b3BodyId bodyId );
+B3_API b3Pos b3Body_GetWorldCenter( b3BodyId bodyId );
 
 /// Override the body's mass properties. Normally this is computed automatically using the
 /// shape geometry and density. This information is lost if a shape is added or removed or if the
@@ -709,6 +759,14 @@ B3_API void b3Body_SetBullet( b3BodyId bodyId, bool flag );
 /// Is this body a bullet?
 B3_API bool b3Body_IsBullet( b3BodyId bodyId );
 
+/// Allow this body to rotate fast. Useful for axially symmetric bodies, such as vehicle wheels.
+/// Normally rotation speed is clamped to improve CCD. However, this clamping is unnecessary for
+/// bodies that only rotate fast around an axis of symmetry.
+B3_API void b3Body_AllowFastRotation( b3BodyId bodyId, bool flag );
+
+/// Is this body allowed to rotate fast?
+B3_API bool b3Body_IsFastRotationAllowed( b3BodyId bodyId );
+
 /// Enable or disable contact recycling for this body. Contact recycling is a performance optimization
 /// that reuses contact manifolds when bodies move slightly. Disabling it can avoid ghost collisions
 /// on characters at the cost of higher per-step work. Existing contacts retain their prior setting;
@@ -721,7 +779,7 @@ B3_API bool b3Body_IsContactRecyclingEnabled( b3BodyId bodyId );
 
 /// Enable/disable hit events on all shapes
 /// @see b3ShapeDef::enableHitEvents
-B3_API void b3Body_EnableHitEvents( b3BodyId bodyId, bool enableHitEvents );
+B3_API void b3Body_EnableHitEvents( b3BodyId bodyId, bool flag );
 
 /// Get the world that owns this body
 B3_API b3WorldId b3Body_GetWorld( b3BodyId bodyId );
@@ -767,8 +825,8 @@ B3_API bool b3Body_OverlapShape( b3BodyId bodyId, b3Pos origin, const b3ShapePro
 								 b3WorldTransform bodyTransform );
 
 /// Collide a character mover with a specific body using a specified body transform.
-B3_API int b3Body_CollideMover( b3BodyId bodyId, b3BodyPlaneResult* bodyPlanes, int planeCapacity, b3Pos origin, const b3Capsule* mover,
-								b3QueryFilter filter, b3WorldTransform bodyTransform );
+B3_API int b3Body_CollideMover( b3BodyId bodyId, b3BodyPlaneResult* bodyPlanes, int planeCapacity, b3Pos origin,
+								const b3Capsule* mover, b3QueryFilter filter, b3WorldTransform bodyTransform );
 
 /** @} */ // body
 
@@ -776,6 +834,10 @@ B3_API int b3Body_CollideMover( b3BodyId bodyId, b3BodyPlaneResult* bodyPlanes, 
  * @defgroup shape Shape
  * Functions to create, destroy, and access.
  * Shapes bind raw geometry to bodies and hold material properties including friction and restitution.
+ * You may add multiple shapes to a single body. There are no hard limits on shape count per body.
+ * 
+ * When you create a shape on a body the center of mass moves. This can lead to the body linear velocity
+ * changing if the angular velocity is non-zero.
  * @{
  */
 
@@ -815,8 +877,16 @@ B3_API b3ShapeId b3CreateMeshShape( b3BodyId bodyId, const b3ShapeDef* def, cons
 /// @return the shape id for accessing the shape
 B3_API b3ShapeId b3CreateHeightFieldShape( b3BodyId bodyId, const b3ShapeDef* def, const b3HeightFieldData* heightField );
 
-/// Compound shapes are only allowed on static bodies.
-B3_API b3ShapeId b3CreateCompoundShape( b3BodyId bodyId, b3ShapeDef* def, const b3CompoundData* compound );
+/// Create a sparse voxel-grid shape and attach it to a body. The shape definition is fully cloned but the voxel data is not.
+/// Contacts are not created until the next time step.
+/// @warning this holds a reference to the input voxel data which must remain valid for the lifetime of this shape
+/// @return the shape id for accessing the shape
+B3_API b3ShapeId b3CreateVoxelShape( b3BodyId bodyId, const b3ShapeDef* def, const b3VoxelData* voxels );
+
+/// Baked compound shapes are only allowed on static bodies.
+/// Note: runtime compounds are achieved by adding multiple shapes to a body.
+/// Runtime compounds can be dynamic and/or kinematic.
+B3_API b3ShapeId b3CreateBakedCompoundShape( b3BodyId bodyId, b3ShapeDef* def, const b3CompoundData* compound );
 
 /// Destroy a shape. You may defer the body mass update which can improve performance if several shapes on a
 ///	body are destroyed at once.
@@ -837,6 +907,12 @@ B3_API b3WorldId b3Shape_GetWorld( b3ShapeId shapeId );
 
 /// Returns true if the shape is a sensor
 B3_API bool b3Shape_IsSensor( b3ShapeId shapeId );
+
+/// Set the shape name.
+B3_API void b3Shape_SetName( b3ShapeId shapeId, const char* name );
+
+/// Get the shape name. Returns an empty string if the name isn't set.
+B3_API const char* b3Shape_GetName( b3ShapeId shapeId );
 
 /// Set the user data for a shape
 B3_API void b3Shape_SetUserData( b3ShapeId shapeId, void* userData );
@@ -938,6 +1014,9 @@ B3_API b3Mesh b3Shape_GetMesh( b3ShapeId shapeId );
 /// Get the shape's height field. Asserts the type is correct.
 B3_API const b3HeightFieldData* b3Shape_GetHeightField( b3ShapeId shapeId );
 
+/// Get the shape's sparse voxel data. Asserts the type is correct.
+B3_API const b3VoxelData* b3Shape_GetVoxel( b3ShapeId shapeId );
+
 /// Allows you to change a shape to be a sphere or update the current sphere.
 /// This does not modify the mass properties.
 /// @see b3Body_ApplyMassFromShapes
@@ -984,6 +1063,12 @@ B3_API int b3Shape_GetSensorData( b3ShapeId shapeId, b3ShapeId* visitorIds, int 
 
 /// Get the current world AABB
 B3_API b3AABB b3Shape_GetAABB( b3ShapeId shapeId );
+
+/// Get the enlarged (fat) world AABB the broad-phase proxy is stored with.
+/// This always contains b3Shape_GetAABB and is the bound the broad-phase tree
+/// tests overlap queries against, so a query that reports this shape can be
+/// re-tested against a narrower AABB without consulting the tree again.
+B3_API b3AABB b3Shape_GetFatAABB( b3ShapeId shapeId );
 
 /// Compute the mass data for a shape
 B3_API b3MassData b3Shape_ComputeMassData( b3ShapeId shapeId );

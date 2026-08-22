@@ -4,6 +4,13 @@ Run examples from the workspace root with `cargo run -p bevy_boxddd --example <n
 
 These examples are native desktop teaching apps. They use Bevy windows, cameras, lights, and simple meshes so users can see how `boxddd` bodies, shapes, joints, events, queries, debug draw, and picking fit into a real Bevy app.
 
+Every example passes `FoundationConfig::default()` to
+`BoxdddPhysicsPlugin::new` explicitly. The first plugin freezes the
+process-wide Foundation configuration; additional Apps may use the same
+configuration and own independent Worlds, while conflicting configurations are
+reported through `BoxdddErrorMessage`. The constructor uses default per-App
+physics settings; examples that customize them chain `with_settings`.
+
 ## Start Here
 
 ```bash
@@ -34,7 +41,7 @@ The testbed is the primary visual learning surface. Use the left panel to switch
 
 Current official-parity scenes: Falling Stack, Advanced Colliders, Body Controls, Continuous Collision, Character Mover, Materials, Joints, Contacts And Sensors, Ray Picking, Debug Draw, Domino Run, Arch Stack, Wind Field, and Ragdoll Chain.
 
-Current boxddd showcase entries: Query Lab, Debug Draw Inspector, Material Lab, and Stats Dashboard. They include live egui controls for Box3D ray casts, AABB overlaps, shape casts, mover casts, debug draw frame inspection, native shape material tuning, and runtime counters/profile snapshots, and are not counted as official Box3D sample ports. Browser Query Lab entries label unbridged provider-mode visitor queries as unavailable instead of reporting misleading zero-hit results.
+Current boxddd showcase entries: Query Lab, Debug Draw Inspector, Material Lab, and Stats Dashboard. They include live egui controls for Box3D ray casts, AABB overlaps, shape casts, mover casts, debug draw frame inspection, native shape material tuning, and runtime counters/profile snapshots, and are not counted as official Box3D sample ports. Browser Query Lab entries label unbridged provider-mode visitor queries as unavailable instead of reporting misleading zero-hit results. The Pages testbed uses the `box3d-sys-v2` provider at bridge revision 2; unsupported callback surfaces are reported as `Error::UnsupportedOnWasm`.
 
 The static demo hub at <https://frankorz.com/boxddd/> mirrors this scene registry.
 

@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 
 use bevy::prelude::*;
 use bevy::time::Fixed;
+use bevy_boxddd::math::{to_boxddd_pos, to_boxddd_vec3};
 use bevy_boxddd::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 use control::TestbedState;
@@ -54,7 +55,7 @@ fn main() {
         .insert_resource(picking::PhysicsDragState::default())
         .add_plugins(support::teaching_default_plugins("boxddd Bevy Testbed"))
         .add_plugins(EguiPlugin::default())
-        .add_plugins(BoxdddPhysicsPlugin::new(BoxdddPhysicsSettings::default()))
+        .add_plugins(BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()))
         .add_systems(First, prepare_time_control)
         .add_systems(Startup, (setup_view, spawn_initial_scene).chain())
         .add_systems(EguiPrimaryContextPass, ui::draw_testbed_ui)
@@ -364,10 +365,10 @@ fn apply_testbed_settings(
     debug_settings.options = state.debug_preset.options();
 
     if let Some(world) = context.world_mut() {
-        let _ = world.try_set_gravity(boxddd::Vec3::new(gravity.x, gravity.y, gravity.z));
-        let _ = world.try_enable_sleeping(state.sleeping_enabled);
-        let _ = world.try_enable_warm_starting(state.warm_starting_enabled);
-        let _ = world.try_enable_continuous(state.continuous_enabled);
+        let _ = world.set_gravity(boxddd::Vec3::new(gravity.x, gravity.y, gravity.z));
+        let _ = world.enable_sleeping(state.sleeping_enabled);
+        let _ = world.enable_warm_starting(state.warm_starting_enabled);
+        let _ = world.enable_continuous(state.continuous_enabled);
     }
 }
 
@@ -382,14 +383,14 @@ fn draw_mover_probe(
 
     for probe in &probes {
         let mover = boxddd::Capsule::new(
-            probe.point1.to_boxddd_vec3(),
-            probe.point2.to_boxddd_vec3(),
+            to_boxddd_vec3(probe.point1),
+            to_boxddd_vec3(probe.point2),
             probe.radius,
         );
         let Ok(fraction) = world.cast_mover(
-            probe.origin.to_boxddd_pos(),
+            to_boxddd_pos(probe.origin),
             &mover,
-            probe.delta.to_boxddd_vec3(),
+            to_boxddd_vec3(probe.delta),
             boxddd::QueryFilter::default(),
         ) else {
             continue;

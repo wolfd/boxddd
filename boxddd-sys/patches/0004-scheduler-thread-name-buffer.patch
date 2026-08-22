@@ -1,0 +1,27 @@
+diff --git a/src/scheduler.c b/src/scheduler.c
+index 003312d..2950ce2 100644
+--- a/src/scheduler.c
++++ b/src/scheduler.c
+@@ -121,7 +121,7 @@ b3Scheduler* b3CreateScheduler( int workerCount )
+ 		scheduler->workerContexts[i].scheduler = scheduler;
+ 		scheduler->workerContexts[i].threadIndex = i + 1;
+ 
+-		char name[16];
++		char name[32];
+ 		snprintf( name, sizeof( name ), "box2d_worker_%02d", i + 1 );
+ 		scheduler->threads[i] = b3CreateThread( b3SchedulerWorkerMain, scheduler->workerContexts + i, name );
+ 	}
+diff --git a/src/solver.c b/src/solver.c
+index 7f391c0..fe01e29 100644
+--- a/src/solver.c
++++ b/src/solver.c
+@@ -2085,8 +2085,8 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
+ 			if ( world->taskCount < B3_MAX_TASKS )
+ 			{
+-				char buffer[16];
++				char buffer[32];
+ 				snprintf( buffer, sizeof( buffer ), "solve[%d]", i );
+ 				workerContext[i].userTask =
+ 					world->enqueueTaskFcn( &b3SolverTask, workerContext + i, world->userTaskContext, buffer );
+ 				world->taskCount += 1;
+ 				world->activeTaskCount += workerContext[i].userTask == NULL ? 0 : 1;

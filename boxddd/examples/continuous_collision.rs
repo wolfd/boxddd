@@ -1,6 +1,7 @@
 use boxddd::prelude::*;
 
 fn main() -> boxddd::Result<()> {
+    let foundation = Foundation::initialize_default()?;
     let moving_sphere = ShapeProxy::sphere(0.25)?;
     let target_sphere = ShapeProxy::sphere(0.5)?;
 
@@ -39,36 +40,46 @@ fn main() -> boxddd::Result<()> {
     );
     assert_eq!(toi.state, TimeOfImpactState::Hit);
 
-    let mut world = World::new(WorldDef::default())?;
-    let wall = world.create_body(BodyDef::builder().position([0.0, 0.0, 0.0]).build());
-    world.create_hull_shape(wall, &ShapeDef::default(), &BoxHull::new(0.05, 2.0, 2.0));
+    let mut world = foundation.create_world(foundation.world_def())?;
+    let wall = world.create_body(
+        foundation
+            .body_def_builder()
+            .position([0.0, 0.0, 0.0])
+            .build()?,
+    )?;
+    world.create_hull_shape(
+        wall,
+        &foundation.shape_def(),
+        &BoxHull::new(0.05, 2.0, 2.0)?,
+    )?;
 
     let bullet = world.create_body(
-        BodyDef::builder()
+        foundation
+            .body_def_builder()
             .body_type(BodyType::Dynamic)
             .position([-3.0, 0.0, 0.0])
             .linear_velocity([60.0, 0.0, 0.0])
             .gravity_scale(0.0)
             .bullet(true)
-            .build(),
-    );
+            .build()?,
+    )?;
     world.create_sphere_shape(
         bullet,
-        &ShapeDef::builder().density(1.0).build(),
+        &foundation.shape_def_builder().density(1.0).build()?,
         &Sphere::new(Vec3::ZERO, 0.15),
-    );
+    )?;
 
     for _ in 0..10 {
-        world.step(1.0 / 120.0, 4);
+        world.step(1.0 / 120.0, 4)?;
     }
 
     println!(
         "bullet world body: bullet={}, position={:?}, velocity={:?}",
-        world.try_body_bullet(bullet)?,
-        world.try_body_position(bullet)?,
-        world.try_body_linear_velocity(bullet)?
+        world.body_bullet(bullet)?,
+        world.body_position(bullet)?,
+        world.body_linear_velocity(bullet)?
     );
-    assert!(world.try_body_bullet(bullet)?);
+    assert!(world.body_bullet(bullet)?);
 
     Ok(())
 }

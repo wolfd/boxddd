@@ -11,17 +11,25 @@ set(BOX3D_TEST_FILES
 	test_container.c
     test_determinism.c
     test_distance.c
+    test_hash.c
     test_height_field.c
     test_hull.c
     test_id.c
     test_joint.c
     test_large_world.c
     test_macros.h
+    test_manifold.c
     test_math.c
 	test_mover.c
+    test_name_cache.c
     test_recording.c
+    test_sat.c
     test_shape.c
     test_table.c
+	test_voxel.c
+	test_voxel_collide.c
+	test_voxel_oracle.c
+	test_voxel_property.c
     test_world.c
 )
 
@@ -38,6 +46,10 @@ target_include_directories(test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 if(BOX3D_VALIDATE)
 	target_compile_definitions(test PRIVATE BOX3D_VALIDATE)
+endif()
+
+if(BOX3D_DISABLE_SIMD)
+	target_compile_definitions(test PRIVATE BOX3D_DISABLE_SIMD)
 endif()
 
 target_link_libraries(test PRIVATE box3d shared)

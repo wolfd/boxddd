@@ -468,9 +468,8 @@ b3HeightFieldData* b3CreateHeightField( const b3HeightFieldDef* data )
 
 	b3Free( decompressedHeights, heightCount * sizeof( float ) );
 
-	// Content hash over the whole blob with the hash field zeroed, like b3HullData/b3MeshData.
 	hf->hash = 0;
-	hf->hash = b3NonZeroHash( b3Hash( B3_HASH_INIT, (const uint8_t*)hf, hf->byteCount ) );
+	hf->hash = b3Hash64NonZero( (const uint8_t*)hf, hf->byteCount );
 
 	return hf;
 }
@@ -749,7 +748,7 @@ b3CastOutput b3ShapeCastHeightField( const b3HeightFieldData* heightField, const
 	// nextFractionX / nextFractionZ advance in units of the clamped sweep
 	// [minFraction, maxFraction], but bestFraction is a fraction of the full input
 	// translation. Precompute the affine map from clamped space to input space so
-	// the loop termination test compares like with like — otherwise it can exit
+	// the loop termination test compares like with like. Otherwise it can exit
 	// early and miss a closer hit in a later cell.
 	float gridFractionScale = input->maxFraction * ( maxFraction - minFraction );
 	float gridFractionOffset = input->maxFraction * minFraction;
@@ -1382,7 +1381,7 @@ b3HeightFieldData* b3CreateGrid( int rowCount, int columnCount, b3Vec3 scale, bo
 }
 
 b3HeightFieldData* b3CreateWave( int rowCount, int columnCount, b3Vec3 scale, float rowFrequency, float columnFrequency,
-							 bool makeHoles )
+								 bool makeHoles )
 {
 	int heightCount = rowCount * columnCount;
 	float* heights = (float*)b3Alloc( heightCount * sizeof( float ) );
@@ -1390,14 +1389,18 @@ b3HeightFieldData* b3CreateWave( int rowCount, int columnCount, b3Vec3 scale, fl
 	float omegaZ = 2.0f * B3_PI * rowFrequency;
 	float omegaX = 2.0f * B3_PI * columnFrequency;
 
+	b3CosSin cs = { 0 };
+
 	for ( int i = 0; i < rowCount; ++i )
 	{
-		float rowHeight = sinf( omegaZ * i );
+		cs = b3ComputeCosSin( omegaZ * i );
+		float rowHeight = cs.sine;
 
 		for ( int j = 0; j < columnCount; ++j )
 		{
 			int k = i * columnCount + j;
-			float columnHeight = sinf( omegaX * j );
+			cs = b3ComputeCosSin( omegaX * j );
+			float columnHeight = cs.sine;
 			heights[k] = rowHeight * columnHeight;
 		}
 	}

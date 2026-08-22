@@ -3,7 +3,7 @@
 use crate::components::{Collider, Joint, PhysicsMaterial};
 use bevy_ecs::prelude::{Entity, Resource};
 use bevy_math::{Quat, Vec3};
-use boxddd::{BodyId, JointId, ShapeId, World, WorldDef};
+use boxddd::{BodyId, Foundation, JointId, ShapeId, World};
 use std::collections::HashMap;
 
 /// How the plugin reports recoverable errors from fixed-update systems.
@@ -14,8 +14,6 @@ pub enum BoxdddErrorPolicy {
     MessageOnly,
     /// Emit [`crate::BoxdddErrorMessage`] and log the error.
     MessageAndLog,
-    /// Panic immediately when a recoverable plugin error is observed.
-    Panic,
 }
 
 /// Runtime settings used by [`crate::BoxdddPhysicsPlugin`].
@@ -42,14 +40,20 @@ impl Default for BoxdddPhysicsSettings {
     }
 }
 
-/// Non-send resource that owns the native Box3D world and ECS id mappings.
+#[derive(Debug)]
+struct FoundationWorld {
+    foundation: &'static Foundation,
+    world: World,
+}
+
+/// Non-send resource that owns one Foundation-backed native Box3D world and ECS id mappings.
 ///
 /// `boxddd::World` is intentionally `!Send`/`!Sync`; Bevy apps should access
 /// this resource from main-thread systems and move plain snapshots across
 /// threads when needed.
 #[derive(Debug)]
 pub struct BoxdddPhysicsContext {
-    world: Option<World>,
+    runtime: Option<FoundationWorld>,
     pub(crate) entity_to_body: HashMap<Entity, BodyId>,
     pub(crate) body_to_entity: HashMap<BodyId, Entity>,
     pub(crate) entity_to_shape: HashMap<Entity, ShapeId>,
@@ -61,14 +65,19 @@ pub struct BoxdddPhysicsContext {
     pub(crate) joint_to_body_entities: HashMap<Entity, (Entity, Entity)>,
     pub(crate) joint_descriptors: HashMap<Entity, Joint>,
     pub(crate) last_step_failed: bool,
+    pub(crate) pending_step_error: Option<boxddd::Error>,
 }
 
 impl BoxdddPhysicsContext {
     /// Creates a context and native Box3D world from plugin settings.
-    pub fn new(settings: &BoxdddPhysicsSettings) -> boxddd::Result<Self> {
+    pub fn new(
+        foundation: &'static Foundation,
+        settings: &BoxdddPhysicsSettings,
+    ) -> boxddd::Result<Self> {
         let gravity = boxddd::Vec3::new(settings.gravity.x, settings.gravity.y, settings.gravity.z);
-        let world = World::new(WorldDef::builder().gravity(gravity).build())?;
-        Ok(Self::from_world(world))
+        let world =
+            foundation.create_world(foundation.world_def_builder().gravity(gravity).build()?)?;
+        Ok(Self::from_runtime(foundation, world))
     }
 
     /// Creates a context without a native world.
@@ -77,7 +86,7 @@ impl BoxdddPhysicsContext {
     /// running while reporting the failure through the configured error policy.
     pub fn disabled() -> Self {
         Self {
-            world: None,
+            runtime: None,
             entity_to_body: HashMap::new(),
             body_to_entity: HashMap::new(),
             entity_to_shape: HashMap::new(),
@@ -89,13 +98,13 @@ impl BoxdddPhysicsContext {
             joint_to_body_entities: HashMap::new(),
             joint_descriptors: HashMap::new(),
             last_step_failed: true,
+            pending_step_error: None,
         }
     }
 
-    /// Creates a context from an existing native world.
-    pub fn from_world(world: World) -> Self {
+    fn from_runtime(foundation: &'static Foundation, world: World) -> Self {
         Self {
-            world: Some(world),
+            runtime: Some(FoundationWorld { foundation, world }),
             entity_to_body: HashMap::new(),
             body_to_entity: HashMap::new(),
             entity_to_shape: HashMap::new(),
@@ -107,17 +116,23 @@ impl BoxdddPhysicsContext {
             joint_to_body_entities: HashMap::new(),
             joint_descriptors: HashMap::new(),
             last_step_failed: false,
+            pending_step_error: None,
         }
     }
 
     /// Returns the native world, if startup succeeded.
     pub fn world(&self) -> Option<&World> {
-        self.world.as_ref()
+        self.runtime.as_ref().map(|runtime| &runtime.world)
     }
 
     /// Returns the native world mutably, if startup succeeded.
     pub fn world_mut(&mut self) -> Option<&mut World> {
-        self.world.as_mut()
+        self.runtime.as_mut().map(|runtime| &mut runtime.world)
+    }
+
+    /// Returns the Foundation paired with the native world, if startup succeeded.
+    pub fn foundation(&self) -> Option<&'static Foundation> {
+        self.runtime.as_ref().map(|runtime| runtime.foundation)
     }
 
     /// Returns the Bevy entity mapped to a native body id.

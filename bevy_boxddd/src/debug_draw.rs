@@ -10,21 +10,12 @@ use bevy_ecs::prelude::{NonSendMut, Res, ResMut, Resource};
 use std::collections::HashMap;
 
 /// Controls whether Box3D debug draw commands are collected after each step.
-#[derive(Resource, Copy, Clone, Debug)]
+#[derive(Resource, Copy, Clone, Debug, Default)]
 pub struct BoxdddDebugDrawSettings {
     /// Enables debug draw command collection when true.
     pub enabled: bool,
     /// Box3D debug draw options forwarded to the native world.
     pub options: boxddd::DebugDrawOptions,
-}
-
-impl Default for BoxdddDebugDrawSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            options: boxddd::DebugDrawOptions::default(),
-        }
-    }
 }
 
 /// Last collected Box3D debug draw frame and persistent shape asset cache.
@@ -129,9 +120,6 @@ impl BoxdddDebugDrawFrame {
     }
 }
 
-/// Backwards-compatible name for the Bevy debug draw frame resource.
-pub type BoxdddDebugDrawCommands = BoxdddDebugDrawFrame;
-
 /// Collects native Box3D debug draw data into [`BoxdddDebugDrawFrame`].
 pub fn collect_debug_draw_commands(
     mut context: NonSendMut<BoxdddPhysicsContext>,
@@ -150,7 +138,7 @@ pub fn collect_debug_draw_commands(
         return;
     };
 
-    let result = world.try_debug_draw_frame_into(&mut debug_frame.frame, debug_settings.options);
+    let result = world.debug_draw_frame_into(&mut debug_frame.frame, debug_settings.options);
 
     if let Err(error) = result {
         debug_frame.clear();
@@ -315,6 +303,27 @@ fn draw_debug_shape_geometry(
         }
         boxddd::DebugShapeGeometry::HeightField { mesh } => {
             draw_debug_mesh(gizmos, mesh, origin, rotation, bevy_math::Vec3::ONE, color);
+        }
+        boxddd::DebugShapeGeometry::Voxel {
+            origin: voxel_origin,
+            cells,
+            voxel_size,
+            ..
+        } => {
+            for cell in cells {
+                let local_center = bevy_math::Vec3::new(
+                    cell.x as f32 * voxel_size,
+                    cell.y as f32 * voxel_size,
+                    cell.z as f32 * voxel_size,
+                ) + to_bevy_vec3(*voxel_origin);
+                let center = origin + rotation * local_center;
+                gizmos.cube(
+                    bevy_transform::components::Transform::from_translation(center)
+                        .with_rotation(rotation)
+                        .with_scale(bevy_math::Vec3::splat(*voxel_size)),
+                    color,
+                );
+            }
         }
         boxddd::DebugShapeGeometry::Compound { children } => {
             for child in children {

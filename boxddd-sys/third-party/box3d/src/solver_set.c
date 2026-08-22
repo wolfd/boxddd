@@ -310,44 +310,12 @@ void b3TrySleepIsland( b3World* world, int islandId )
 			int colorIndex = contact->colorIndex;
 			B3_ASSERT( 0 <= colorIndex && colorIndex < B3_GRAPH_COLOR_COUNT );
 
-			b3GraphColor* color = world->constraintGraph.colors + colorIndex;
-
-			// Remove bodies from graph coloring associated with this constraint
-			if ( colorIndex != B3_OVERFLOW_INDEX )
-			{
-				// might clear a bit for a static body, but this has no effect
-				b3ClearBit( &color->bodySet, contact->edges[0].bodyId );
-				b3ClearBit( &color->bodySet, contact->edges[1].bodyId );
-			}
-
 			int sleepContactIndex = sleepSet->contactIndices.count;
 			b3Array_Push( sleepSet->contactIndices, contactId );
 
-			int localIndex = contact->localIndex;
-			if ( ( contact->flags & b3_simMeshContact ) || colorIndex == B3_OVERFLOW_INDEX )
-			{
-				int movedLocalIndex = b3Array_RemoveSwap( color->contacts, localIndex );
-				if ( movedLocalIndex != B3_NULL_INDEX )
-				{
-					// fix moved element
-					int movedContactId = color->contacts.data[localIndex].contactId;
-					b3Contact* movedContact = b3Array_Get( world->contacts, movedContactId );
-					B3_ASSERT( movedContact->localIndex == movedLocalIndex );
-					movedContact->localIndex = localIndex;
-				}
-			}
-			else
-			{
-				int movedLocalIndex = b3Array_RemoveSwap( color->convexContacts, localIndex );
-				if ( movedLocalIndex != B3_NULL_INDEX )
-				{
-					// fix moved element
-					int movedContactId = color->convexContacts.data[localIndex];
-					b3Contact* movedContact = b3Array_Get( world->contacts, movedContactId );
-					B3_ASSERT( movedContact->localIndex == movedLocalIndex );
-					movedContact->localIndex = localIndex;
-				}
-			}
+			b3RemoveContactFromGraph( world, contact->edges[0].bodyId, contact->edges[1].bodyId, colorIndex,
+							  contact->localIndex,
+							  ( contact->flags & b3_simMeshContact ) || colorIndex == B3_OVERFLOW_INDEX );
 
 			contact->setIndex = sleepSetId;
 			contact->colorIndex = B3_NULL_INDEX;

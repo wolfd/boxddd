@@ -5,9 +5,11 @@ use bevy::prelude::*;
 use bevy_boxddd::prelude::*;
 
 fn main() {
-    let mut options = boxddd::DebugDrawOptions::default();
-    options.draw_joints = true;
-    options.draw_bounds = true;
+    let options = boxddd::DebugDrawOptions {
+        draw_joints: true,
+        draw_bounds: true,
+        ..Default::default()
+    };
 
     App::new()
         .insert_resource(BoxdddDebugDrawSettings {
@@ -17,7 +19,7 @@ fn main() {
         .add_plugins(support::teaching_default_plugins(
             "boxddd Bevy Debug Draw Overlay",
         ))
-        .add_plugins(BoxdddPhysicsPlugin::new(BoxdddPhysicsSettings::default()))
+        .add_plugins(BoxdddPhysicsPlugin::new(boxddd::FoundationConfig::default()))
         .add_systems(Startup, setup)
         .add_systems(Update, draw_debug_gizmos)
         .run();
