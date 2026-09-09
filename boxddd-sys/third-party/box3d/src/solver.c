@@ -1414,6 +1414,9 @@ static void b3SolverTask( void* taskContext )
 		int subStepCount = context->subStepCount;
 		for ( int subStepIndex = 0; subStepIndex < subStepCount; ++subStepIndex )
 		{
+			// Positions are unchanged between relaxation and the next biased solve.
+			context->reuseSeparations = subStepIndex > 0;
+			context->storeSeparations = subStepIndex + 1 < subStepCount;
 			// stageIndex restarted each iteration
 			// syncBits still increases monotonically because the upper bits increase each iteration
 			int iterationStageIndex = stageIndex;

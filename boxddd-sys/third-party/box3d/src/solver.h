@@ -185,6 +185,8 @@ typedef struct b3StepContext
 	float inv_h;
 
 	int subStepCount;
+	bool storeSeparations;
+	bool reuseSeparations;
 
 	b3Softness contactSoftness;
 	b3Softness staticSoftness;

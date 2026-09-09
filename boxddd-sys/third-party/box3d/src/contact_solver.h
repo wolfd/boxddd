@@ -18,6 +18,7 @@ typedef struct b3ManifoldConstraintPoint
 	float totalNormalImpulse;
 	float normalMass;
 	float leverArm;
+	float cachedSeparation;
 } b3ManifoldConstraintPoint;
 
 typedef struct b3ManifoldConstraint

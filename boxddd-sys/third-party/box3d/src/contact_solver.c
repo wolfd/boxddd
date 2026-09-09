@@ -473,7 +473,8 @@ void b3WarmStartContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 // literal staticA arguments at the two call sites produce branch-free A/B
 // machine paths without maintaining mirrored solver loops.
 B3_FORCE_INLINE void b3SolveStaticContact_Mesh( b3ContactConstraint* contactConstraint, b3BodyState* state,
-											 float inv_h, float contactSpeed, bool useBias, bool staticA )
+											 float inv_h, float contactSpeed, bool useBias, bool staticA,
+											 bool reuseSeparation, bool storeSeparation )
 {
 	b3Vec3 v = state->linearVelocity;
 	b3Vec3 w = state->angularVelocity;
@@ -507,9 +508,22 @@ B3_FORCE_INLINE void b3SolveStaticContact_Mesh( b3ContactConstraint* contactCons
 			b3Vec3 staticAnchor = staticA ? cp->rA : cp->rB;
 			b3Vec3 liveNormalTorque = staticA ? cp->normalTorqueB : b3Neg( cp->normalTorqueA );
 
-			float liveSeparation = b3Dot( liveAnchor, localNormal );
-			float staticSeparation = b3Dot( staticAnchor, liveNormal );
-			float s = separationOffset + liveSeparation - staticSeparation + cp->baseSeparation;
+			float s;
+			if ( !reuseSeparation || B3_ENABLE_VALIDATION )
+			{
+				float liveSeparation = b3Dot( liveAnchor, localNormal );
+				float staticSeparation = b3Dot( staticAnchor, liveNormal );
+				s = separationOffset + liveSeparation - staticSeparation + cp->baseSeparation;
+				B3_VALIDATE( !reuseSeparation || memcmp( &s, &cp->cachedSeparation, sizeof( s ) ) == 0 );
+			}
+			if ( reuseSeparation )
+			{
+				s = cp->cachedSeparation;
+			}
+			if ( storeSeparation )
+			{
+				cp->cachedSeparation = s;
+			}
 
 #if B3_ENABLE_VALIDATION
 			// Projection is algebraically identical to rotating every anchor. Keep
@@ -654,6 +668,8 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 
 	float inv_h = context->inv_h;
 	const float contactSpeed = context->world->contactSpeed;
+	const bool reuseSeparation = context->reuseSeparations && useBias;
+	const bool storeSeparation = context->storeSeparations && !useBias;
 
 	for ( int i = startIndex; i < endIndex; ++i )
 	{
@@ -666,12 +682,14 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 		bool hasBodyB = indexB != B3_NULL_INDEX;
 		if ( !hasBodyA && hasBodyB )
 		{
-			b3SolveStaticContact_Mesh( contactConstraint, states + indexB, inv_h, contactSpeed, useBias, true );
+			b3SolveStaticContact_Mesh( contactConstraint, states + indexB, inv_h, contactSpeed, useBias, true,
+									 reuseSeparation, storeSeparation );
 			continue;
 		}
 		if ( hasBodyA && !hasBodyB )
 		{
-			b3SolveStaticContact_Mesh( contactConstraint, states + indexA, inv_h, contactSpeed, useBias, false );
+			b3SolveStaticContact_Mesh( contactConstraint, states + indexA, inv_h, contactSpeed, useBias, false,
+									 reuseSeparation, storeSeparation );
 			continue;
 		}
 		B3_ASSERT( hasBodyA && hasBodyB );
@@ -714,12 +732,23 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 				b3Vec3 rA = cp->rA;
 				b3Vec3 rB = cp->rB;
 
-				// compute current separation
-				// this is subject to round-off error if the anchor is far from the body center of mass
-				b3Vec3 rotatedA = b3RotateVector( dqA, rA );
-				b3Vec3 rotatedB = b3RotateVector( dqB, rB );
-				b3Vec3 ds = b3Add( dp, b3Sub( rotatedB, rotatedA ) );
-				float s = b3Dot( ds, normal ) + cp->baseSeparation;
+				float s;
+				if ( !reuseSeparation || B3_ENABLE_VALIDATION )
+				{
+					b3Vec3 rotatedA = b3RotateVector( dqA, rA );
+					b3Vec3 rotatedB = b3RotateVector( dqB, rB );
+					b3Vec3 ds = b3Add( dp, b3Sub( rotatedB, rotatedA ) );
+					s = b3Dot( ds, normal ) + cp->baseSeparation;
+					B3_VALIDATE( !reuseSeparation || memcmp( &s, &cp->cachedSeparation, sizeof( s ) ) == 0 );
+				}
+				if ( reuseSeparation )
+				{
+					s = cp->cachedSeparation;
+				}
+				if ( storeSeparation )
+				{
+					cp->cachedSeparation = s;
+				}
 
 				float velocityBias = 0.0f;
 				float massScale = 1.0f;
@@ -1255,6 +1284,7 @@ typedef struct b3ContactConstraintPointWide
 {
 	b3Vec3W anchorAs, anchorBs;
 	b3FloatW baseSeparations;
+	b3FloatW cachedSeparations;
 	b3FloatW normalImpulses;
 	b3FloatW totalNormalImpulses;
 	b3FloatW normalMasses;
@@ -1944,6 +1974,8 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 	b3FloatW contactSpeed = b3SplatW( -context->world->contactSpeed );
 	b3FloatW oneW = b3SplatW( 1.0f );
 	b3FloatW epsilonW = b3SplatW( FLT_EPSILON );
+	const bool reuseSeparation = context->reuseSeparations && useBias;
+	const bool storeSeparation = context->storeSeparations && !useBias;
 
 	for ( int wideIndex = block.startIndex; wideIndex < block.startIndex + block.count; ++wideIndex )
 	{
@@ -1985,15 +2017,23 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 			b3Vec3W rA = cp->anchorAs;
 			b3Vec3W rB = cp->anchorBs;
 
-			// Moving anchors for current separation
-			// todo speed this up using matrices
-			b3Vec3W rsA = b3RotateVectorW( bA.dq, rA );
-			b3Vec3W rsB = b3RotateVectorW( bB.dq, rB );
-
-			// compute current separation
-			// this is subject to round-off error if the anchor is far from the body center of mass
-			b3Vec3W ds = b3AddVW( dp, b3SubVW( rsB, rsA ) );
-			b3FloatW s = b3AddW( b3DotW( c->normal, ds ), cp->baseSeparations );
+			b3FloatW s;
+			if ( !reuseSeparation || B3_ENABLE_VALIDATION )
+			{
+				b3Vec3W rsA = b3RotateVectorW( bA.dq, rA );
+				b3Vec3W rsB = b3RotateVectorW( bB.dq, rB );
+				b3Vec3W ds = b3AddVW( dp, b3SubVW( rsB, rsA ) );
+				s = b3AddW( b3DotW( c->normal, ds ), cp->baseSeparations );
+				B3_VALIDATE( !reuseSeparation || memcmp( &s, &cp->cachedSeparations, sizeof( s ) ) == 0 );
+			}
+			if ( reuseSeparation )
+			{
+				s = cp->cachedSeparations;
+			}
+			if ( storeSeparation )
+			{
+				cp->cachedSeparations = s;
+			}
 
 			// Apply speculative bias if separation is greater than zero, otherwise apply soft constraint bias
 			b3FloatW mask = b3GreaterThanW( s, b3ZeroW() );
