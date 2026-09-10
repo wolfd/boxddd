@@ -14,6 +14,7 @@
 #include "shape.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 void b3CreateBroadPhase( b3BroadPhase* bp, const b3Capacity* capacity )
 {
@@ -323,13 +324,94 @@ static bool b3PairQueryCallback( int proxyId, uint64_t userData, void* context )
 	return true;
 }
 
+typedef struct b3FindPairsContext
+{
+	b3World* world;
+	const int* bodyIds;
+} b3FindPairsContext;
+
+static void b3BuildTreeBodyIds( const b3World* world, const b3DynamicTree* tree, int* bodyIds )
+{
+	int previous = B3_NULL_INDEX;
+	int index = tree->root;
+	while ( index != B3_NULL_INDEX )
+	{
+		const b3TreeNode* node = tree->nodes + index;
+		int next;
+		if ( previous == node->parent )
+		{
+			if ( node->flags & b3_leafNode )
+			{
+				bodyIds[index] = world->shapes.data[(int)node->userData].bodyId;
+				next = node->parent;
+			}
+			else
+			{
+				next = node->children.child1;
+			}
+		}
+		else if ( previous == node->children.child1 )
+		{
+			next = node->children.child2;
+		}
+		else
+		{
+			int a = bodyIds[node->children.child1];
+			int b = bodyIds[node->children.child2];
+			bodyIds[index] = a == b ? a : B3_NULL_INDEX;
+			next = node->parent;
+		}
+		previous = index;
+		index = next;
+	}
+}
+
+static void b3QueryOtherBodies( const b3DynamicTree* tree, b3AABB aabb, const int* bodyIds, int bodyId,
+								 b3QueryPairContext* context )
+{
+	if ( tree->nodeCount == 0 )
+	{
+		return;
+	}
+	int stack[1024];
+	int count = 0;
+	stack[count++] = tree->root;
+	while ( count > 0 )
+	{
+		int index = stack[--count];
+		const b3TreeNode* node = tree->nodes + index;
+		if ( bodyIds[index] == bodyId || ( node->categoryBits & B3_DEFAULT_MASK_BITS ) == 0 ||
+			 b3AABB_Overlaps( node->aabb, aabb ) == false )
+		{
+			continue;
+		}
+		if ( node->flags & b3_leafNode )
+		{
+			if ( b3PairQueryCallback( index, node->userData, context ) == false )
+			{
+				return;
+			}
+		}
+		else
+		{
+			B3_ASSERT( count < 1023 );
+			if ( count < 1023 )
+			{
+				stack[count++] = node->children.child1;
+				stack[count++] = node->children.child2;
+			}
+		}
+	}
+}
+
 static void b3FindPairsTask( int startIndex, int endIndex, int workerIndex, void* context )
 {
 	b3TracyCZoneNC( pair_task, "Pair Task", b3_colorAquamarine, true );
 
 	B3_UNUSED( workerIndex );
 
-	b3World* world = (b3World*)context;
+	b3FindPairsContext* task = (b3FindPairsContext*)context;
+	b3World* world = task->world;
 	b3BroadPhase* bp = &world->broadPhase;
 
 	b3QueryPairContext queryContext = { 0 };
@@ -377,8 +459,16 @@ static void b3FindPairsTask( int startIndex, int endIndex, int workerIndex, void
 		// All proxies collide with dynamic proxies
 		// Using B3_DEFAULT_MASK_BITS so that b3Filter::groupIndex works.
 		queryContext.queryTreeType = b3_dynamicBody;
-		b3DynamicTree_Query( bp->trees + b3_dynamicBody, fatAABB, B3_DEFAULT_MASK_BITS, requireAllBits, b3PairQueryCallback,
-							 &queryContext );
+		if ( task->bodyIds != NULL && proxyType == b3_dynamicBody )
+		{
+			int bodyId = world->shapes.data[queryContext.queryShapeIndex].bodyId;
+			b3QueryOtherBodies( bp->trees + b3_dynamicBody, fatAABB, task->bodyIds, bodyId, &queryContext );
+		}
+		else
+		{
+			b3DynamicTree_Query( bp->trees + b3_dynamicBody, fatAABB, B3_DEFAULT_MASK_BITS, requireAllBits,
+								 b3PairQueryCallback, &queryContext );
+		}
 	}
 
 	b3TracyCZoneEnd( pair_task );
@@ -422,8 +512,42 @@ void b3UpdateBroadPhasePairs( b3World* world )
 	b3AtomicStoreInt( &b3_probeCount, 0 );
 #endif
 
+	const char* option = getenv( "B3_PRUNE_SELF_SUBTREES" );
+	bool prune = option == NULL || strcmp( option, "0" ) != 0;
+	int* bodyIds = NULL;
+	if ( prune && bp->trees[b3_dynamicBody].nodeCount > 0 )
+	{
+		bodyIds = b3StackAlloc( alloc, bp->trees[b3_dynamicBody].nodeCapacity * sizeof( int ), "tree body ids" );
+		b3BuildTreeBodyIds( world, bp->trees + b3_dynamicBody, bodyIds );
+#if B3_ENABLE_VALIDATION
+		const b3DynamicTree* tree = bp->trees + b3_dynamicBody;
+		for ( int i = 0; i < tree->nodeCapacity; ++i )
+		{
+			const b3TreeNode* node = tree->nodes + i;
+			if ( ( node->flags & b3_allocatedNode ) == 0 )
+			{
+				continue;
+			}
+			if ( node->flags & b3_leafNode )
+			{
+				B3_ASSERT( bodyIds[i] == world->shapes.data[(int)node->userData].bodyId );
+			}
+			else
+			{
+				int a = bodyIds[node->children.child1];
+				int b = bodyIds[node->children.child2];
+				B3_ASSERT( bodyIds[i] == ( a == b ? a : B3_NULL_INDEX ) );
+			}
+		}
+#endif
+	}
+	b3FindPairsContext task = { world, bodyIds };
 	int minRange = 64;
-	b3ParallelFor( world, b3FindPairsTask, moveCount, minRange, world, "pairs" );
+	b3ParallelFor( world, b3FindPairsTask, moveCount, minRange, &task, "pairs" );
+	if ( bodyIds != NULL )
+	{
+		b3StackFree( alloc, bodyIds );
+	}
 
 	b3TracyCZoneNC( create_contacts, "Create Contacts", b3_colorCoral, true );
 

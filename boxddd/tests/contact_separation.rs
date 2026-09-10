@@ -187,3 +187,90 @@ fn moving_support_contacts_continue_after_snapshot_restore() {
         }
     }
 }
+
+#[test]
+fn tiled_contacts_survive_tree_recycling_and_body_type_changes() {
+    for workers in [1, 4, 8] {
+        let (mut serial, mut ids) = scene(1, true, true, false);
+        let (mut parallel, mut parallel_ids) = scene(workers, true, true, false);
+        for round in 0..6 {
+            for (world, ids) in [(&mut serial, &mut ids), (&mut parallel, &mut parallel_ids)] {
+                world
+                    .set_body_type(
+                        ids[2],
+                        [BodyType::Kinematic, BodyType::Static, BodyType::Dynamic][round % 3],
+                    )
+                    .unwrap();
+                let shapes = world.body_shapes(ids[1]).unwrap();
+                assert!(shapes.len() > 1);
+                for shape in shapes.into_iter().step_by(3) {
+                    world.destroy_shape(shape, true).unwrap();
+                }
+                for x in 0..8 {
+                    world
+                        .create_hull_shape(
+                            ids[1],
+                            &foundation()
+                                .shape_def_builder()
+                                .density(1.0)
+                                .build()
+                                .unwrap(),
+                            &BoxHull::offset(
+                                0.45,
+                                0.2,
+                                0.45,
+                                [x as f32 - 3.5, 0.0, round as f32 - 2.5],
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                }
+                let last = ids.len() - 1;
+                world.destroy_body(ids[last]).unwrap();
+                ids[last] = world
+                    .create_body(
+                        foundation()
+                            .body_def_builder()
+                            .body_type(BodyType::Dynamic)
+                            .position([0.0, 0.7 + round as f32 * 0.05, 0.0])
+                            .build()
+                            .unwrap(),
+                    )
+                    .unwrap();
+                world
+                    .create_hull_shape(
+                        ids[last],
+                        &foundation()
+                            .shape_def_builder()
+                            .density(1.0)
+                            .build()
+                            .unwrap(),
+                        &BoxHull::new(24.0, 0.4, 4.0).unwrap(),
+                    )
+                    .unwrap();
+            }
+            for _ in 0..8 {
+                serial.step(1.0 / 60.0, 4).unwrap();
+                parallel.step(1.0 / 60.0, 4).unwrap();
+                assert_same(&serial, &ids, &parallel, &parallel_ids);
+            }
+            if round == 2 {
+                let image = serial.save_state().unwrap();
+                let keys: Vec<_> = ids
+                    .iter()
+                    .map(|&id| serial.body_snapshot_id(id).unwrap())
+                    .collect();
+                parallel.load_state(&image).unwrap();
+                parallel_ids = keys
+                    .into_iter()
+                    .map(|key| parallel.resolve_body_snapshot_id(key).unwrap())
+                    .collect();
+                assert_same(&serial, &ids, &parallel, &parallel_ids);
+            }
+        }
+        assert!(
+            ids.iter()
+                .any(|&id| serial.body_contacts(id).unwrap().len() > 1)
+        );
+    }
+}
