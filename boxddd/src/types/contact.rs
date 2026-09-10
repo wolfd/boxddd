@@ -50,6 +50,40 @@ impl ManifoldPoint {
     }
 }
 
+/// Complete-step impulses on body B. Body A receives their negatives.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct StepImpulses {
+    /// Normal impulse per manifold point, including warm starts, relaxation, and restitution.
+    pub normal_impulses: [f32; MAX_MANIFOLD_POINTS],
+    pub friction_impulse: Vec3,
+    /// Free angular impulse from twist friction and rolling resistance.
+    pub angular_impulse: Vec3,
+    /// Friction anchors relative to each body's center of mass, in world space at preparation.
+    pub friction_anchor_a: Vec3,
+    pub friction_anchor_b: Vec3,
+    /// Zero means unsolved. Compare with `World::step_index` to reject stale sleeping contacts.
+    pub step_index: u64,
+}
+
+impl StepImpulses {
+    #[inline]
+    pub const fn from_raw(raw: ffi::b3StepImpulses) -> Self {
+        Self {
+            normal_impulses: raw.normalImpulses,
+            friction_impulse: Vec3::from_raw(raw.frictionImpulse),
+            angular_impulse: Vec3::from_raw(raw.angularImpulse),
+            friction_anchor_a: Vec3::from_raw(raw.frictionAnchorA),
+            friction_anchor_b: Vec3::from_raw(raw.frictionAnchorB),
+            step_index: raw.stepIndex,
+        }
+    }
+
+    pub fn is_current(&self, step_index: u64) -> bool {
+        self.step_index != 0 && self.step_index == step_index
+    }
+}
+
 /// Contact manifold containing up to [`MAX_MANIFOLD_POINTS`] points.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -66,6 +100,7 @@ pub struct Manifold {
     pub rolling_impulse: Vec3,
     /// Number of valid entries in `points`.
     pub point_count: i32,
+    pub step_impulses: StepImpulses,
 }
 
 impl Manifold {
@@ -86,6 +121,7 @@ impl Manifold {
             friction_impulse: Vec3::from_raw(raw.frictionImpulse),
             rolling_impulse: Vec3::from_raw(raw.rollingImpulse),
             point_count: raw.pointCount.clamp(0, MAX_MANIFOLD_POINTS as i32),
+            step_impulses: StepImpulses::from_raw(raw.stepImpulses),
         }
     }
 }

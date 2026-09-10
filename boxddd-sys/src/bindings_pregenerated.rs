@@ -2978,6 +2978,17 @@ pub struct b3ManifoldPoint {
     /// Did this contact point exist in the previous step?
     pub persisted: bool,
 }
+/// Signed impulses applied to body B during one complete solver step. Body A receives their negatives.
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct b3StepImpulses {
+    pub normalImpulses: [f32; 4usize],
+    pub frictionImpulse: b3Vec3,
+    pub angularImpulse: b3Vec3,
+    pub frictionAnchorA: b3Vec3,
+    pub frictionAnchorB: b3Vec3,
+    pub stepIndex: u64,
+}
 /** A contact manifold describes the contact points between colliding shapes.
  @note Box3D uses speculative collision so some contact points may be separated.*/
 #[repr(C)]
@@ -2995,6 +3006,7 @@ pub struct b3Manifold {
     pub rollingImpulse: b3Vec3,
     /// The number of contact points, will be 0 to 4
     pub pointCount: ::std::os::raw::c_int,
+    pub stepImpulses: b3StepImpulses,
 }
 pub const b3SeparatingFeature_b3_invalidAxis: b3SeparatingFeature = 0;
 pub const b3SeparatingFeature_b3_backsideAxis: b3SeparatingFeature = 1;
@@ -4577,6 +4589,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     /// Get the gravity vector
     pub fn b3World_GetGravity(worldId: b3WorldId) -> b3Vec3;
+    pub fn b3World_GetStepIndex(worldId: b3WorldId) -> u64;
 }
 unsafe extern "C" {
     /** Apply a radial explosion

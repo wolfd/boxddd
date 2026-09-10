@@ -1449,6 +1449,7 @@ static void b3SolverTask( void* taskContext )
 
 			// Solve constraints
 			bool useBias = true;
+			context->storeStepImpulses = false;
 			for ( int j = 0; j < ITERATIONS; ++j )
 			{
 				// Overflow constraints have lower priority. Typically these are dynamic-vs-dynamic.
@@ -1482,6 +1483,7 @@ static void b3SolverTask( void* taskContext )
 			useBias = false;
 			for ( int j = 0; j < RELAX_ITERATIONS; ++j )
 			{
+				context->storeStepImpulses = j + 1 == RELAX_ITERATIONS;
 				b3BeginSerialPhase( context );
 				b3SolveJoints_Overflow( context, useBias );
 				b3SolveContacts_Overflow( context, useBias );

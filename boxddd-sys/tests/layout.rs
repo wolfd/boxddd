@@ -25,6 +25,7 @@ const _: () = {
 #[test]
 fn representative_public_api_symbols_are_bound() {
     let _world_step: unsafe extern "C" fn(ffi::b3WorldId, f32, i32) = ffi::b3World_Step;
+    let _world_step_index: unsafe extern "C" fn(ffi::b3WorldId) -> u64 = ffi::b3World_GetStepIndex;
     let _body_transform: unsafe extern "C" fn(ffi::b3BodyId) -> ffi::b3WorldTransform =
         ffi::b3Body_GetTransform;
     let _sphere_shape: unsafe extern "C" fn(

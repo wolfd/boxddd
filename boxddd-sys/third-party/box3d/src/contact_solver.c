@@ -193,6 +193,8 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 				constraint->normal = normal;
 				constraint->tangent1 = tangent1;
 				constraint->tangent2 = tangent2;
+				constraint->stepFrictionImpulse = (b3Vec2){ 0.0f, 0.0f };
+				constraint->stepAngularImpulse = b3Vec3_zero;
 
 				// Stiffer for static contacts to avoid bodies getting pushed through the ground
 				constraint->tangentVelocity1 = b3Dot( contact->tangentVelocity, constraint->tangent1 );
@@ -215,6 +217,7 @@ void b3PrepareContacts_Mesh( b3SolverBlock block, b3StepContext* context )
 					cp->baseSeparation = s - b3Dot( b3Sub( cp->rB, cp->rA ), normal );
 					cp->normalImpulse = warmStartScale * mp->normalImpulse;
 					cp->totalNormalImpulse = 0.0f;
+					cp->stepNormalImpulse = 0.0f;
 
 					b3Vec3 rA = cp->rA;
 					b3Vec3 rB = cp->rB;
@@ -654,7 +657,22 @@ B3_FORCE_INLINE void b3SolveStaticContact_Mesh( b3ContactConstraint* contactCons
 	}
 }
 
-// Merged normal and friction loops. This is much more stable for the Jenga stack.
+static void b3AccumulateStepImpulses_Mesh( b3ContactConstraint* contact )
+{
+	// Warm start plus solver deltas equals the final impulse of each substep.
+	for ( int j = 0; j < contact->manifoldCount; ++j )
+	{
+		b3ManifoldConstraint* c = contact->constraints + j;
+		for ( int k = 0; k < c->pointCount; ++k )
+		{
+			c->points[k].stepNormalImpulse += c->points[k].normalImpulse;
+		}
+		c->stepFrictionImpulse = b3Add2( c->stepFrictionImpulse, c->frictionImpulse );
+		b3Vec3 rolling = contact->rollingResistance > 0.0f ? c->rollingImpulse : b3Vec3_zero;
+		c->stepAngularImpulse = b3Add( c->stepAngularImpulse, b3MulAdd( rolling, c->twistImpulse, c->normal ) );
+	}
+}
+
 void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool useBias )
 {
 	b3World* world = context->world;
@@ -684,12 +702,20 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 		{
 			b3SolveStaticContact_Mesh( contactConstraint, states + indexB, inv_h, contactSpeed, useBias, true,
 									 reuseSeparation, storeSeparation );
+			if ( context->storeStepImpulses )
+			{
+				b3AccumulateStepImpulses_Mesh( contactConstraint );
+			}
 			continue;
 		}
 		if ( hasBodyA && !hasBodyB )
 		{
 			b3SolveStaticContact_Mesh( contactConstraint, states + indexA, inv_h, contactSpeed, useBias, false,
 									 reuseSeparation, storeSeparation );
+			if ( context->storeStepImpulses )
+			{
+				b3AccumulateStepImpulses_Mesh( contactConstraint );
+			}
 			continue;
 		}
 		B3_ASSERT( hasBodyA && hasBodyB );
@@ -903,6 +929,11 @@ void b3SolveContacts_Mesh( b3SolverBlock block, b3StepContext* context, bool use
 			}
 		}
 
+		if ( context->storeStepImpulses )
+		{
+			b3AccumulateStepImpulses_Mesh( contactConstraint );
+		}
+
 		if ( stateA->flags & b3_dynamicFlag )
 		{
 			stateA->linearVelocity = vA;
@@ -994,6 +1025,7 @@ void b3ApplyRestitution_Mesh( b3SolverBlock block, b3StepContext* context )
 				impulse = newImpulse - cp->normalImpulse;
 				cp->normalImpulse = newImpulse;
 				cp->totalNormalImpulse += impulse;
+				cp->stepNormalImpulse += impulse;
 
 				// apply contact impulse
 				b3Vec3 P = b3MulSV( impulse, normal );
@@ -1091,6 +1123,14 @@ void b3StoreImpulses_Mesh( b3SolverBlock block, b3StepContext* context, int work
 				manifold->frictionImpulse = b3Blend2( constraint->frictionImpulse.x, constraint->tangent1,
 													  constraint->frictionImpulse.y, constraint->tangent2 );
 				manifold->rollingImpulse = constraint->rollingImpulse;
+				manifold->stepImpulses = (b3StepImpulses){
+					.frictionImpulse = b3Blend2( constraint->stepFrictionImpulse.x, constraint->tangent1,
+						constraint->stepFrictionImpulse.y, constraint->tangent2 ),
+					.angularImpulse = constraint->stepAngularImpulse,
+					.frictionAnchorA = constraint->centerA,
+					.frictionAnchorB = constraint->centerB,
+					.stepIndex = world->stepIndex,
+				};
 
 				int count = constraint->pointCount;
 				B3_ASSERT( count == manifold->pointCount );
@@ -1101,6 +1141,7 @@ void b3StoreImpulses_Mesh( b3SolverBlock block, b3StepContext* context, int work
 					mp->normalImpulse = cp->normalImpulse;
 					mp->totalNormalImpulse = cp->totalNormalImpulse;
 					mp->normalVelocity = cp->relativeVelocity;
+					manifold->stepImpulses.normalImpulses[pointIndex] = cp->stepNormalImpulse;
 
 					if ( checkHitEvents && flagged == false && mp->normalVelocity < negHitThreshold &&
 						 mp->totalNormalImpulse > 0.0f )
@@ -1287,6 +1328,7 @@ typedef struct b3ContactConstraintPointWide
 	b3FloatW cachedSeparations;
 	b3FloatW normalImpulses;
 	b3FloatW totalNormalImpulses;
+	b3FloatW stepNormalImpulses;
 	b3FloatW normalMasses;
 	b3FloatW leverArms;
 	b3FloatW relativeVelocities;
@@ -1317,6 +1359,8 @@ typedef struct b3ContactConstraintWide
 	b3Vec2W frictionImpulse;
 	b3SymMatrix3W rollingMass;
 	b3Vec3W rollingImpulse;
+	b3Vec2W stepFrictionImpulse;
+	b3Vec3W stepAngularImpulse;
 	b3FloatW friction;
 	b3FloatW rollingResistance;
 	b3FloatW tangentVelocity1;
@@ -1614,6 +1658,12 @@ void b3PrepareContacts_Convex( b3SolverBlock block, b3StepContext* context )
 		{
 			b3ContactConstraintWide* constraint = wideBase + wideIndex;
 			int localWideIndex = wideIndex - colorWideStart;
+			constraint->stepFrictionImpulse = (b3Vec2W){ b3ZeroW(), b3ZeroW() };
+			constraint->stepAngularImpulse = (b3Vec3W){ b3ZeroW(), b3ZeroW(), b3ZeroW() };
+			for ( int k = 0; k < B3_MAX_MANIFOLD_POINTS; ++k )
+			{
+				constraint->points[k].stepNormalImpulses = b3ZeroW();
+			}
 
 			for ( int lane = 0; lane < B3_SIMD_WIDTH; ++lane )
 			{
@@ -2083,6 +2133,10 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 				 b3AllZeroW( c->frictionImpulse.x ) && b3AllZeroW( c->frictionImpulse.y ) &&
 				 b3AllZeroW( c->rollingResistance ) )
 			{
+				if ( context->storeStepImpulses )
+				{
+					c->stepAngularImpulse = b3AddVW( c->stepAngularImpulse, c->rollingImpulse );
+				}
 				b3ScatterBodies( states, c->indexA, &bA );
 				b3ScatterBodies( states, c->indexB, &bB );
 				continue;
@@ -2201,6 +2255,17 @@ void b3SolveContacts_Convex( b3SolverBlock block, b3StepContext* context, bool u
 			}
 		}
 
+		if ( context->storeStepImpulses )
+		{
+			for ( int k = 0; k < pointCount; ++k )
+			{
+				c->points[k].stepNormalImpulses = b3AddW( c->points[k].stepNormalImpulses, c->points[k].normalImpulses );
+			}
+			c->stepFrictionImpulse.x = b3AddW( c->stepFrictionImpulse.x, c->frictionImpulse.x );
+			c->stepFrictionImpulse.y = b3AddW( c->stepFrictionImpulse.y, c->frictionImpulse.y );
+			c->stepAngularImpulse = b3AddVW( c->stepAngularImpulse, b3MulAddSVW( c->rollingImpulse, c->twistImpulse, c->normal ) );
+		}
+
 		b3ScatterBodies( states, c->indexA, &bA );
 		b3ScatterBodies( states, c->indexB, &bB );
 	}
@@ -2268,6 +2333,7 @@ void b3ApplyRestitution_Convex( b3SolverBlock block, b3StepContext* context )
 			b3FloatW deltaImpulse = b3SubW( newImpulse, cp->normalImpulses );
 			cp->normalImpulses = newImpulse;
 			cp->totalNormalImpulses = b3AddW( cp->totalNormalImpulses, deltaImpulse );
+			cp->stepNormalImpulses = b3AddW( cp->stepNormalImpulses, deltaImpulse );
 
 			// Apply contact impulse
 			b3Vec3W P = b3MulSVW( deltaImpulse, c->normal );
@@ -2329,6 +2395,8 @@ void b3StoreImpulses_Convex( b3SolverBlock block, b3StepContext* context, int wo
 			const float* rollingImpulseX = (float*)&c->rollingImpulse.X;
 			const float* rollingImpulseY = (float*)&c->rollingImpulse.Y;
 			const float* rollingImpulseZ = (float*)&c->rollingImpulse.Z;
+			b3Vec3W stepFriction = b3AddVW( b3MulSVW( c->stepFrictionImpulse.x, c->tangent1 ),
+				b3MulSVW( c->stepFrictionImpulse.y, c->tangent2 ) );
 
 			int localWideIndex = wideIndex - colorWideStart;
 
@@ -2359,6 +2427,13 @@ void b3StoreImpulses_Convex( b3SolverBlock block, b3StepContext* context, int wo
 					rollingImpulseY[lane],
 					rollingImpulseZ[lane],
 				};
+				m->stepImpulses = (b3StepImpulses){
+					.frictionImpulse = { ( (float*)&stepFriction.X )[lane], ( (float*)&stepFriction.Y )[lane], ( (float*)&stepFriction.Z )[lane] },
+					.angularImpulse = { ( (float*)&c->stepAngularImpulse.X )[lane], ( (float*)&c->stepAngularImpulse.Y )[lane], ( (float*)&c->stepAngularImpulse.Z )[lane] },
+					.frictionAnchorA = { ( (float*)&c->centerA.X )[lane], ( (float*)&c->centerA.Y )[lane], ( (float*)&c->centerA.Z )[lane] },
+					.frictionAnchorB = { ( (float*)&c->centerB.X )[lane], ( (float*)&c->centerB.Y )[lane], ( (float*)&c->centerB.Z )[lane] },
+					.stepIndex = world->stepIndex,
+				};
 
 				int pointCount = m->pointCount;
 				for ( int pointIndex = 0; pointIndex < pointCount; ++pointIndex )
@@ -2372,6 +2447,7 @@ void b3StoreImpulses_Convex( b3SolverBlock block, b3StepContext* context, int wo
 					mp->normalImpulse = normalImpulse[lane];
 					mp->totalNormalImpulse = totalNormalImpulse[lane];
 					mp->normalVelocity = normalVelocity[lane];
+					m->stepImpulses.normalImpulses[pointIndex] = ( (float*)&cp->stepNormalImpulses )[lane];
 				}
 
 				int contactId = contactIds[contactIndex];

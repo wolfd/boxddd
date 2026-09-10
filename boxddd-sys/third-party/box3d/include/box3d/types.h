@@ -2738,6 +2738,20 @@ typedef struct b3ManifoldPoint
 	bool persisted;
 } b3ManifoldPoint;
 
+/// Signed impulses applied to body B during one complete solver step. Body A receives their negatives.
+typedef struct b3StepImpulses
+{
+	/// Normal impulse per manifold point, including warm starts, relaxation, and restitution.
+	float normalImpulses[B3_MAX_MANIFOLD_POINTS];
+	b3Vec3 frictionImpulse;
+	/// Free angular impulse from twist friction and rolling resistance.
+	b3Vec3 angularImpulse;
+	/// Friction anchors relative to each body's center of mass, in world space at preparation.
+	b3Vec3 frictionAnchorA, frictionAnchorB;
+	/// Zero means unsolved. Compare with b3World_GetStepIndex to reject stale sleeping contacts.
+	uint64_t stepIndex;
+} b3StepImpulses;
+
 /// A contact manifold describes the contact points between colliding shapes.
 /// @note Box3D uses speculative collision so some contact points may be separated.
 typedef struct b3Manifold
@@ -2759,6 +2773,8 @@ typedef struct b3Manifold
 
 	/// The number of contact points, will be 0 to 4
 	int pointCount;
+
+	b3StepImpulses stepImpulses;
 
 } b3Manifold;
 

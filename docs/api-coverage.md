@@ -16,18 +16,18 @@ The fixture proves that every upstream symbol has an explicit classification. It
 
 ## Current Snapshot
 
-The current fixture classifies 580 unique upstream `B3_API` functions:
+The current fixture classifies 603 vendored `B3_API` functions:
 
 | Status | Count | Typical areas |
 |---|---:|---|
-| `safe` | 570 | explicit Foundation configuration, world lifecycle and advancement-aware stepping, body runtime, body/shape scoped queries, dynamic tree, mover collision, explosions, shape creation and runtime introspection, compound/mesh/height-field/voxel authoring, query, byte ownership transfer, state snapshots, and readback, owned/transactional/scoped shape event/contact/sensor/sleep/island readback, contact data, hull cloning and box scaling, advanced standalone collision, joints, world queries, debug draw, recording/replay, safe recording load, deterministic math helpers, core math/value validation |
+| `safe` | 571 | explicit Foundation configuration, world lifecycle and advancement-aware stepping, body runtime, body/shape scoped queries, dynamic tree, mover collision, explosions, shape creation and runtime introspection, compound/mesh/height-field/voxel authoring, query, byte ownership transfer, state snapshots, and readback, owned/transactional/scoped shape event/contact/sensor/sleep/island readback, contact data, hull cloning and box scaling, advanced standalone collision, joints, world queries, debug draw, recording/replay, safe recording load, deterministic math helpers, core math/value validation |
 | `raw` | 27 | allocator/assert/log hooks, timers/sleep/hash, explicit `boxddd::raw` user data, file-backed dynamic tree or height-field helpers, native recording save helper, low-level debug graph color helper |
 | `omitted` | 5 | global world-count diagnostics and redundant body/shape/joint world-handle getters that do not fit the safe ownership model |
 | `deferred` | 0 | no current upstream `B3_API` symbols remain in the deferred bucket |
 
 Counts are intentionally checked by tests instead of maintained only in prose. When the fixture changes, update this snapshot in the same commit.
 
-Safe wrapper coverage is 548 of 580 public `B3_API` symbols, or about 94%.
+Safe wrapper coverage is 571 of 603 public `B3_API` symbols, or about 95%.
 The remaining 32 symbols are not unplanned API gaps: they are classified as
 explicit raw interop or intentionally omitted from the safe ownership model.
 

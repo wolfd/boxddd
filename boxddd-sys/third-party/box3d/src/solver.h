@@ -186,6 +186,7 @@ typedef struct b3StepContext
 
 	int subStepCount;
 	bool storeSeparations;
+	bool storeStepImpulses;
 	bool reuseSeparations;
 
 	b3Softness contactSoftness;

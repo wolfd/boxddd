@@ -16,6 +16,7 @@ typedef struct b3ManifoldConstraintPoint
 	float relativeVelocity;
 	float normalImpulse;
 	float totalNormalImpulse;
+	float stepNormalImpulse;
 	float normalMass;
 	float leverArm;
 	float cachedSeparation;
@@ -38,6 +39,8 @@ typedef struct b3ManifoldConstraint
 	b3Matrix2 tangentMass;
 	b3Vec2 frictionImpulse;
 	b3Vec3 rollingImpulse;
+	b3Vec2 stepFrictionImpulse;
+	b3Vec3 stepAngularImpulse;
 	float tangentVelocity1;
 	float tangentVelocity2;
 } b3ManifoldConstraint;

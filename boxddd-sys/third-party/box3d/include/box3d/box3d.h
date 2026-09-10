@@ -189,6 +189,9 @@ B3_API void b3World_SetGravity( b3WorldId worldId, b3Vec3 gravity );
 /// Get the gravity vector
 B3_API b3Vec3 b3World_GetGravity( b3WorldId worldId );
 
+/// Number of solver steps that advanced time, including steps with no awake bodies.
+B3_API uint64_t b3World_GetStepIndex( b3WorldId worldId );
+
 /// Apply a radial explosion
 /// @param worldId The world id
 /// @param explosionDef The explosion definition

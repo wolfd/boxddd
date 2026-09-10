@@ -736,6 +736,7 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 					{
 						b3Manifold* manifold = contact->manifolds + manifoldIndex;
 						b3Vec3 normal = manifold->normal;
+						manifold->stepImpulses.stepIndex = 0;
 
 						int pointCount = manifold->pointCount;
 						for ( int pointIndex = 0; pointIndex < pointCount; ++pointIndex )
@@ -837,6 +838,7 @@ static void b3CollideTask( int startIndex, int endIndex, int workerIndex, void* 
 				b3ManifoldPoint* mp = manifold->points + pointIndex;
 				mp->baseSeparation = mp->separation;
 			}
+			manifold->stepImpulses.stepIndex = 0;
 		}
 	}
 
@@ -3626,6 +3628,11 @@ b3Vec3 b3World_GetGravity( b3WorldId worldId )
 {
 	b3World* world = b3GetWorldFromId( worldId );
 	return world->gravity;
+}
+
+uint64_t b3World_GetStepIndex( b3WorldId worldId )
+{
+	return b3GetWorldFromId( worldId )->stepIndex;
 }
 
 typedef struct ExplosionContext

@@ -46,6 +46,7 @@ b3World_SetCustomFilterCallback|safe|world|box3d.h|covered by current safe wrapp
 b3World_SetPreSolveCallback|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_SetGravity|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_GetGravity|safe|world|box3d.h|covered by current safe wrapper implementation
+b3World_GetStepIndex|safe|world|box3d.h|World::step_index identifies complete-step contact impulses
 b3World_Explode|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_SetContactTuning|safe|world|box3d.h|covered by current safe wrapper implementation
 b3World_SetContactRecycleDistance|safe|world|box3d.h|covered by current safe wrapper implementation

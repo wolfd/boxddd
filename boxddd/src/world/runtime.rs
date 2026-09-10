@@ -60,6 +60,13 @@ impl World {
         }))
     }
 
+    /// Number of solver steps that advanced time, including steps with no awake bodies.
+    #[inline]
+    pub fn step_index(&self) -> Result<u64> {
+        let _call = self.enter_world_call()?;
+        Ok(unsafe { ffi::b3World_GetStepIndex(self.raw()) })
+    }
+
     /// Tries to set the world gravity vector.
     #[inline]
     pub fn set_gravity(&mut self, gravity: impl Into<Vec3>) -> Result<()> {
